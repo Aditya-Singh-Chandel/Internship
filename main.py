@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form, Query
+from fastapi import FastAPI, Form, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 import uuid
@@ -8,6 +8,23 @@ from datetime import datetime
 db = {}
 
 app = FastAPI()
+
+class HTTPError(BaseModel):
+    detail: str
+    
+responses_400 = {400: {"model": HTTPError, "description": "Bad Request - Validation Error"}}
+responses_404 = {404: {"model": HTTPError, "description": "Not Found - Task ID does not exist"}}
+responses_400_and_404 = {**responses_400, **responses_404}
+
+class TaskItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    status: bool
+    created_at: str
+    deadline: str | None
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskItem]
 
 class task_post(BaseModel):
     title: str = Field(
@@ -39,7 +56,6 @@ class updater(BaseModel):
     )
 
 def parse_datetime_input(dt_str: str | None):
-    """Base helper to convert dd/mm/yyyy hh:mm:ss into a standard ISO timestamp without future restrictions."""
     if not dt_str:
         return None
         
@@ -56,7 +72,7 @@ def parse_datetime_input(dt_str: str | None):
     try:
         day, month, year = date_part.split("/")
     except ValueError:
-        return {"error": "Date must be in dd/mm/yyyy format."}
+        raise HTTPException(status_code=400, detail="Date must be in dd/mm/yyyy format.")
     
     time_components = time_part.split(":")
     while len(time_components) < 3:
@@ -73,30 +89,29 @@ def parse_datetime_input(dt_str: str | None):
         minute_int = int(minute)
         second_int = int(second)
     except ValueError:
-        return {"error": "Invalid date or time numbers."}
+        raise HTTPException(status_code=400, detail="Invalid date or time numbers.")
     
     if month_int in [4, 6, 9, 11] and day_int > 30:
-        return {"error": "Invalid date: This month only has 30 days."}
+        raise HTTPException(status_code=400, detail="Invalid date: This month only has 30 days.")
         
     if month_int == 2:
         is_leap_year = (year_int % 4 == 0 and year_int % 100 != 0) or (year_int % 400 == 0)
         if is_leap_year and day_int > 29:
-            return {"error": "Invalid date: February has only 29 days in a leap year."}
+            raise HTTPException(status_code=400, detail="Invalid date: February has only 29 days in a leap year.")
         elif not is_leap_year and day_int > 28:
-            return {"error": "Invalid date: February has only 28 days in a non-leap year."}
+            raise HTTPException(status_code=400, detail="Invalid date: February has only 28 days in a non-leap year.")
             
     return f"{year_int:04d}-{month_int:02d}-{day_int:02d}T{hour_int:02d}:{minute_int:02d}:{second_int:02d}"
 
 def format_deadline_string(deadline_str: str | None):
-    """Parses date and adds the restriction that it MUST be in the future."""
     parsed = parse_datetime_input(deadline_str)
     
-    if isinstance(parsed, dict) or parsed is None:
-        return parsed
+    if parsed is None:
+        return None
         
     dt = datetime.fromisoformat(parsed)
     if dt <= datetime.now():
-        return {"error": "Deadline must be a date and time in the future."}
+        raise HTTPException(status_code=400, detail="Deadline must be a date and time in the future.")
             
     return parsed
 
@@ -104,7 +119,7 @@ def format_deadline_string(deadline_str: str | None):
 def home():
     return {"message": "this is todo list"}
 
-@app.get("/list")
+@app.get("/list", response_model=TaskListResponse, responses=responses_400)
 def full_list(
     q: str | None = Query(default=None, examples=[""]), 
     completed: bool | None = None, 
@@ -116,23 +131,19 @@ def full_list(
     deadline_op: Literal["eq", "lt", "gt"] | None = None
 ):
     if bool(created_at_date) != bool(created_at_op):
-        return {"error": "To filter by creation date, both 'created_at_date' and 'created_at_op' must be provided."}
+        raise HTTPException(status_code=400, detail="To filter by creation date, both 'created_at_date' and 'created_at_op' must be provided.")
     if bool(deadline_date) != bool(deadline_op):
-        return {"error": "To filter by deadline, both 'deadline_date' and 'deadline_op' must be provided."}
+        raise HTTPException(status_code=400, detail="To filter by deadline, both 'deadline_date' and 'deadline_op' must be provided.")
         
     parsed_created_at = None
     if created_at_date:
         parsed_created_at = parse_datetime_input(created_at_date)
-        if isinstance(parsed_created_at, dict):
-            return {"error": f"Invalid format for created_at_date: {parsed_created_at['error']}"}
 
     parsed_deadline = None
     if deadline_date:
         parsed_deadline = parse_datetime_input(deadline_date)
-        if isinstance(parsed_deadline, dict):
-            return {"error": f"Invalid format for deadline_date: {parsed_deadline['error']}"}
 
-    matched = {}
+    matched = []
     q_cleaned = " ".join(q.split()).lower() if q is not None else None
 
     for key, value in db.items():
@@ -170,46 +181,62 @@ def full_list(
                 deadline_matches = False
 
         if title_matches and status_matches and created_matches and deadline_matches:
-            matched[key] = value
+            matched.append({
+                "id": key,
+                "title": value["title"],
+                "status": value["status"],
+                "created_at": value["created_at"],
+                "deadline": value["deadline"]
+            })
             
     if sort_by:
         reverse_order = order == "desc"
         if sort_by == "deadline":
-            matched = dict(sorted(matched.items(), key=lambda item: item[1]["deadline"] or ("0000-01-01T00:00:00" if reverse_order else "9999-12-31T23:59:59"), reverse=reverse_order))
+            matched.sort(
+                key=lambda item: item["deadline"] or ("0000-01-01T00:00:00" if reverse_order else "9999-12-31T23:59:59"), 
+                reverse=reverse_order
+            )
         else:
-            matched = dict(sorted(matched.items(), key=lambda item: item[1][sort_by], reverse=reverse_order))
+            matched.sort(key=lambda item: item[sort_by], reverse=reverse_order)
 
-    return matched
+    return {"tasks": matched}
 
-@app.get("/list/{id}")
+
+@app.get("/list/{id}", response_model=TaskListResponse, responses=responses_404)
 def task_by_id(id: uuid.UUID):
     if id not in db:
-        return {"error": "this task is not present"}
-    return db[id]
+        raise HTTPException(status_code=404, detail="This task is not present.")
+    
+    task = db[id]
+    return {"tasks": [{
+        "id": id,
+        "title": task["title"],
+        "status": task["status"],
+        "created_at": task["created_at"],
+        "deadline": task["deadline"]
+    }]}
 
-@app.post("/list")
+@app.post("/list", status_code=201, response_model=TaskListResponse, responses=responses_400)
 def add_task(addition: Annotated[task_post, Form()]):
     is_completed = addition.status == "true"
     
     new_title = " ".join(addition.title.split())
     
     if not new_title:
-        return {"error": "Title cannot be empty."}
+        raise HTTPException(status_code=400, detail="Title cannot be empty.")
         
     if re.fullmatch(r'[\d\s]+', new_title):
-        return {"error": "Title cannot consist solely of numbers."}
+        raise HTTPException(status_code=400, detail="Title cannot consist solely of numbers.")
         
     if not re.search(r'[a-zA-Z0-9\U00010000-\U0010ffff\u2600-\u27BF]', new_title):
-        return {"error": "Title cannot consist solely of special characters."}
+        raise HTTPException(status_code=400, detail="Title cannot consist solely of special characters.")
         
     if len(new_title) > 100:
-        return {"error": "Title cannot exceed 100 characters."}
+        raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters.")
         
     task_id = uuid.uuid4()
     
     parsed_deadline = format_deadline_string(addition.deadline)
-    if isinstance(parsed_deadline, dict) and "error" in parsed_deadline:
-        return parsed_deadline
     
     task = {
         "title": new_title, 
@@ -219,18 +246,19 @@ def add_task(addition: Annotated[task_post, Form()]):
     }
     db[task_id] = task
 
-    return {
-        "task_id": task_id, 
+    return {"tasks": [{
+        "id": task_id, 
         "title": task["title"], 
         "status": task["status"],
         "created_at": task["created_at"],
         "deadline": task["deadline"]
-    }
+    }]}
 
-@app.put("/list/{id}")
+
+@app.put("/list/{id}", response_model=TaskListResponse, responses=responses_400_and_404)
 def update_task(id: uuid.UUID, update_data: Annotated[updater, Form()]):
     if id not in db:
-        return {"error": "this task is not present"}
+        raise HTTPException(status_code=404, detail="This task is not present.")
 
     current_task = db[id]
 
@@ -238,16 +266,16 @@ def update_task(id: uuid.UUID, update_data: Annotated[updater, Form()]):
         req_title = " ".join(update_data.title.split())
         
         if not req_title:
-            return {"error": "Title cannot be empty."}
+            raise HTTPException(status_code=400, detail="Title cannot be empty.")
             
         if re.fullmatch(r'[\d\s]+', req_title):
-            return {"error": "Title cannot consist solely of numbers."}
+            raise HTTPException(status_code=400, detail="Title cannot consist solely of numbers.")
             
         if not re.search(r'[a-zA-Z0-9\U00010000-\U0010ffff\u2600-\u27BF]', req_title):
-            return {"error": "Title cannot consist solely of special characters."}
+            raise HTTPException(status_code=400, detail="Title cannot consist solely of special characters.")
             
         if len(req_title) > 100:
-            return {"error": "Title cannot exceed 100 characters."}
+            raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters.")
     else:
         req_title = current_task["title"]
         
@@ -255,32 +283,31 @@ def update_task(id: uuid.UUID, update_data: Annotated[updater, Form()]):
     
     if update_data.deadline is not None:
         parsed_deadline = format_deadline_string(update_data.deadline)
-        if isinstance(parsed_deadline, dict) and "error" in parsed_deadline:
-            return parsed_deadline
         db[id]["deadline"] = parsed_deadline
 
     db[id]["title"] = req_title
     db[id]["status"] = req_status
 
-    return {
-        "task_id": id, 
+    return {"tasks": [{
+        "id": id, 
         "title": db[id]["title"], 
         "status": db[id]["status"], 
         "created_at": db[id]["created_at"],
-        "deadline": db[id]["deadline"],
-        "message": "Task updated successfully."
-    }
+        "deadline": db[id]["deadline"]
+    }]}
 
-@app.delete("/list/{id}")
+
+@app.delete("/list/{id}", response_model=TaskListResponse, responses=responses_404)
 def delete_task(id: uuid.UUID):
     if id not in db:
-        return {"error": "this task is not present"}
+        raise HTTPException(status_code=404, detail="This task is not present.")
     deleted = db[id]
     del db[id]
-    return {
-        "task_id": id,
+    
+    return {"tasks": [{
+        "id": id,
         "title": deleted["title"], 
         "status": deleted["status"],
         "created_at": deleted["created_at"],
         "deadline": deleted["deadline"]
-    }
+    }]}
