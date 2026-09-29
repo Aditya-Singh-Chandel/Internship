@@ -1,11 +1,38 @@
-from fastapi import FastAPI, Form, Query, HTTPException
+from fastapi import FastAPI, Form, Query, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
-import uuid
-import re
+import uuid, os, re
 from datetime import datetime
+from sqlalchemy import create_engine, Column, String, Boolean
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy.dialects.postgresql import UUID
+from dotenv import load_dotenv
 
-db = {}
+load_dotenv()
+
+db_url = os.getenv("DATABASE_CONNECTION_LOCAL")
+
+db_class = declarative_base()
+engine = create_engine(db_url)
+SessionLocal = sessionmaker(autocommit=False, bind=engine)
+
+class Task(db_class):
+    __tablename__ = "tasks"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(100), nullable=False)
+    description = Column(String, nullable=True) 
+    status = Column(Boolean, default=False)
+    created_at = Column(String, default=lambda: datetime.now().isoformat())
+    deadline = Column(String, nullable=True)
+
+db_class.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 app = FastAPI()
 
@@ -19,6 +46,7 @@ responses_400_and_404 = {**responses_400, **responses_404}
 class TaskItem(BaseModel):
     id: uuid.UUID
     title: str
+    description: str | None 
     status: bool
     created_at: str
     deadline: str | None
@@ -29,6 +57,11 @@ class TaskListResponse(BaseModel):
 class task_post(BaseModel):
     title: str = Field(
         description="Letters, numbers, emojis, special characters, and spaces. Cannot be exclusively numbers or special characters. Max 100 chars after trimming.",
+        examples=[""]
+    )
+    description: str | None = Field(
+        default=None, 
+        description="Detailed notes or description for the task. Leading and trailing whitespaces will be stripped.",
         examples=[""]
     )
     status: Literal["true", "false"] = "false"
@@ -44,6 +77,11 @@ class updater(BaseModel):
     title: str | None = Field(
         default=None, 
         description="Letters, numbers, emojis, special characters, and spaces. Cannot be exclusively numbers or special characters. Max 100 chars after trimming.",
+        examples=[""]
+    )
+    description: str | None = Field(
+        default=None, 
+        description="Detailed notes or description for the task. Leading and trailing whitespaces will be stripped.",
         examples=[""]
     )
     status: Literal["true", "false"] | None = None
@@ -80,11 +118,9 @@ def parse_datetime_input(dt_str: str | None):
         
     try:
         hour, minute, second = time_components
-        
         day_int = int(day)
         month_int = int(month)
         year_int = int(year)
-        
         hour_int = int(hour)
         minute_int = int(minute)
         second_int = int(second)
@@ -128,186 +164,133 @@ def full_list(
     created_at_date: str | None = Query(default=None, examples=[""]),
     created_at_op: Literal["eq", "lt", "gt"] | None = None,
     deadline_date: str | None = Query(default=None, examples=[""]),
-    deadline_op: Literal["eq", "lt", "gt"] | None = None
+    deadline_op: Literal["eq", "lt", "gt"] | None = None,
+    db: Session = Depends(get_db)
 ):
     if bool(created_at_date) != bool(created_at_op):
         raise HTTPException(status_code=400, detail="To filter by creation date, both 'created_at_date' and 'created_at_op' must be provided.")
     if bool(deadline_date) != bool(deadline_op):
         raise HTTPException(status_code=400, detail="To filter by deadline, both 'deadline_date' and 'deadline_op' must be provided.")
         
-    parsed_created_at = None
+    query = db.query(Task)
+    
+    if q is not None:
+        q_cleaned = " ".join(q.split()).lower()
+        query = query.filter((Task.title.ilike(f"%{q_cleaned}%")) | (Task.description.ilike(f"%{q_cleaned}%")))
+        
+    if completed is not None:
+        query = query.filter(Task.status == completed)
+
     if created_at_date:
         parsed_created_at = parse_datetime_input(created_at_date)
+        if created_at_op == "eq":
+            query = query.filter(Task.created_at.startswith(parsed_created_at))
+        elif created_at_op == "lt":
+            query = query.filter(Task.created_at < parsed_created_at)
+        elif created_at_op == "gt":
+            query = query.filter(Task.created_at > parsed_created_at)
 
-    parsed_deadline = None
     if deadline_date:
         parsed_deadline = parse_datetime_input(deadline_date)
-
-    matched = []
-    q_cleaned = " ".join(q.split()).lower() if q is not None else None
-
-    for key, value in db.items():
-        title_matches = True
-        status_matches = True
-        created_matches = True
-        deadline_matches = True
-        
-        if q_cleaned is not None:
-            title_matches = q_cleaned in value["title"].lower()
-            
-        if completed is not None:
-            status_matches = value["status"] == completed
-
-        if parsed_created_at:
-            task_created = value["created_at"][:19]
-            if created_at_op == "eq" and task_created != parsed_created_at:
-                created_matches = False
-            elif created_at_op == "lt" and task_created >= parsed_created_at:
-                created_matches = False
-            elif created_at_op == "gt" and task_created <= parsed_created_at:
-                created_matches = False
-
-        if parsed_deadline:
-            task_deadline = value["deadline"]
-            if task_deadline:
-                task_deadline = task_deadline[:19]
-                if deadline_op == "eq" and task_deadline != parsed_deadline:
-                    deadline_matches = False
-                elif deadline_op == "lt" and task_deadline >= parsed_deadline:
-                    deadline_matches = False
-                elif deadline_op == "gt" and task_deadline <= parsed_deadline:
-                    deadline_matches = False
-            else:
-                deadline_matches = False
-
-        if title_matches and status_matches and created_matches and deadline_matches:
-            matched.append({
-                "id": key,
-                "title": value["title"],
-                "status": value["status"],
-                "created_at": value["created_at"],
-                "deadline": value["deadline"]
-            })
+        query = query.filter(Task.deadline.isnot(None))
+        if deadline_op == "eq":
+            query = query.filter(Task.deadline.startswith(parsed_deadline))
+        elif deadline_op == "lt":
+            query = query.filter(Task.deadline < parsed_deadline)
+        elif deadline_op == "gt":
+            query = query.filter(Task.deadline > parsed_deadline)
             
     if sort_by:
-        reverse_order = order == "desc"
-        if sort_by == "deadline":
-            matched.sort(
-                key=lambda item: item["deadline"] or ("0000-01-01T00:00:00" if reverse_order else "9999-12-31T23:59:59"), 
-                reverse=reverse_order
-            )
+        sort_column = getattr(Task, sort_by)
+        if order == "desc":
+            query = query.order_by(sort_column.desc().nulls_last())
         else:
-            matched.sort(key=lambda item: item[sort_by], reverse=reverse_order)
+            query = query.order_by(sort_column.asc().nulls_last())
 
-    return {"tasks": matched}
-
+    tasks = query.all()
+    return {"tasks": tasks}
 
 @app.get("/list/{id}", response_model=TaskListResponse, responses=responses_404)
-def task_by_id(id: uuid.UUID):
-    if id not in db:
+def task_by_id(id: uuid.UUID, db: Session = Depends(get_db)):
+    task = db.query(Task).filter(Task.id == id).first()
+    if not task:
         raise HTTPException(status_code=404, detail="This task is not present.")
     
-    task = db[id]
-    return {"tasks": [{
-        "id": id,
-        "title": task["title"],
-        "status": task["status"],
-        "created_at": task["created_at"],
-        "deadline": task["deadline"]
-    }]}
+    return {"tasks": [task]}
 
 @app.post("/list", status_code=201, response_model=TaskListResponse, responses=responses_400)
-def add_task(addition: Annotated[task_post, Form()]):
+def add_task(addition: Annotated[task_post, Form()], db: Session = Depends(get_db)):
     is_completed = addition.status == "true"
-    
     new_title = " ".join(addition.title.split())
     
     if not new_title:
         raise HTTPException(status_code=400, detail="Title cannot be empty.")
-        
     if re.fullmatch(r'[\d\s]+', new_title):
         raise HTTPException(status_code=400, detail="Title cannot consist solely of numbers.")
-        
     if not re.search(r'[a-zA-Z0-9\U00010000-\U0010ffff\u2600-\u27BF]', new_title):
         raise HTTPException(status_code=400, detail="Title cannot consist solely of special characters.")
-        
     if len(new_title) > 100:
         raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters.")
         
-    task_id = uuid.uuid4()
-    
     parsed_deadline = format_deadline_string(addition.deadline)
     
-    task = {
-        "title": new_title, 
-        "status": is_completed,
-        "created_at": datetime.now().isoformat(),
-        "deadline": parsed_deadline 
-    }
-    db[task_id] = task
+    parsed_description = addition.description.strip() if addition.description is not None else None
+    
+    new_task = Task(
+        title=new_title, 
+        description=parsed_description,
+        status=is_completed,
+        deadline=parsed_deadline 
+    )
+    db.add(new_task)
+    db.commit()
+    db.refresh(new_task)
 
-    return {"tasks": [{
-        "id": task_id, 
-        "title": task["title"], 
-        "status": task["status"],
-        "created_at": task["created_at"],
-        "deadline": task["deadline"]
-    }]}
-
+    return {"tasks": [new_task]}
 
 @app.put("/list/{id}", response_model=TaskListResponse, responses=responses_400_and_404)
-def update_task(id: uuid.UUID, update_data: Annotated[updater, Form()]):
-    if id not in db:
+def update_task(id: uuid.UUID, update_data: Annotated[updater, Form()], db: Session = Depends(get_db)):
+    current_task = db.query(Task).filter(Task.id == id).first()
+    
+    if not current_task:
         raise HTTPException(status_code=404, detail="This task is not present.")
-
-    current_task = db[id]
 
     if update_data.title is not None:
         req_title = " ".join(update_data.title.split())
         
         if not req_title:
             raise HTTPException(status_code=400, detail="Title cannot be empty.")
-            
         if re.fullmatch(r'[\d\s]+', req_title):
             raise HTTPException(status_code=400, detail="Title cannot consist solely of numbers.")
-            
         if not re.search(r'[a-zA-Z0-9\U00010000-\U0010ffff\u2600-\u27BF]', req_title):
             raise HTTPException(status_code=400, detail="Title cannot consist solely of special characters.")
-            
         if len(req_title) > 100:
             raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters.")
-    else:
-        req_title = current_task["title"]
+            
+        current_task.title = req_title
+
+    if update_data.description is not None:
+        current_task.description = update_data.description.strip()
         
-    req_status = (update_data.status == "true") if update_data.status is not None else current_task["status"]
+    if update_data.status is not None:
+        current_task.status = (update_data.status == "true")
     
     if update_data.deadline is not None:
         parsed_deadline = format_deadline_string(update_data.deadline)
-        db[id]["deadline"] = parsed_deadline
+        current_task.deadline = parsed_deadline
 
-    db[id]["title"] = req_title
-    db[id]["status"] = req_status
+    db.commit()
+    db.refresh(current_task)
 
-    return {"tasks": [{
-        "id": id, 
-        "title": db[id]["title"], 
-        "status": db[id]["status"], 
-        "created_at": db[id]["created_at"],
-        "deadline": db[id]["deadline"]
-    }]}
-
+    return {"tasks": [current_task]}
 
 @app.delete("/list/{id}", response_model=TaskListResponse, responses=responses_404)
-def delete_task(id: uuid.UUID):
-    if id not in db:
+def delete_task(id: uuid.UUID, db: Session = Depends(get_db)):
+    task = db.query(Task).filter(Task.id == id).first()
+    if not task:
         raise HTTPException(status_code=404, detail="This task is not present.")
-    deleted = db[id]
-    del db[id]
     
-    return {"tasks": [{
-        "id": id,
-        "title": deleted["title"], 
-        "status": deleted["status"],
-        "created_at": deleted["created_at"],
-        "deadline": deleted["deadline"]
-    }]}
+    db.delete(task)
+    db.commit()
+    
+    return {"tasks": [task]}
