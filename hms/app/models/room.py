@@ -1,0 +1,15 @@
+import uuid
+from sqlalchemy import Column, String, ForeignKey, Uuid
+from sqlalchemy.orm import relationship
+from app.core.database import db_class
+
+class Room(db_class):
+    __tablename__ = "rooms"
+
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    room_type_id = Column(Uuid, ForeignKey("room_types.id"), nullable=False)
+    room_number = Column(String, nullable=False)
+    floor = Column(String, nullable=True)
+    status = Column(String, default="available") 
+
+    room_type = relationship("RoomType")
