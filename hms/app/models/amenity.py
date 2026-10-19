@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, Uuid
+from sqlalchemy import Column, String, ForeignKey, Uuid, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import db_class
 
@@ -10,6 +10,7 @@ class Amenity(db_class):
     hotel_id = Column(Uuid, ForeignKey("hotels.id"), nullable=True)
     room_type_id = Column(Uuid, ForeignKey("room_types.id"), nullable=True)
     name = Column(String, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
 
     hotel = relationship("Hotel")
     room_type = relationship("RoomType")

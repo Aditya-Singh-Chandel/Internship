@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Text, Numeric, Uuid
+from sqlalchemy import Column, String, Text, Numeric, Uuid, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import db_class
 
@@ -19,5 +19,6 @@ class Hotel(db_class):
     description = Column(Text, nullable=True)
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
 
     room_types = relationship("RoomType", back_populates="hotel")

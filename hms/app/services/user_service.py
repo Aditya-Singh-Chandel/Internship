@@ -1,5 +1,6 @@
 from app.utils.validation_utils import validate_string, validate_future_date
-from datetime import date
+from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
+from datetime import date, datetime, timezone
 from fastapi import HTTPException
 import uuid
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from app.schemas.user import UserCreate
 
 import hashlib
 import os
+
 
 def hash_password(password: str) -> str:
     salt = os.urandom(16).hex()
@@ -28,17 +30,30 @@ def create_user(db: Session, user: UserCreate):
     db.refresh(db_user)
     return db_user
 
-def get_users(db: Session):
-    return db.query(User).all()
+def get_users(db: Session, query_params: dict | None = None):
+    if query_params is None:
+        query_params = {}
 
-def get_user_by_id(db: Session, item_id: uuid.UUID):
-    item = db.query(User).filter(User.id == item_id).first()
+    parsed = extract_filters(query_params)
+
+    query = db.query(User)
+    query = filter_active(query, User, query_params)
+    query = apply_filters(query, User, parsed["filters"])
+    query = apply_sorting(query, User, parsed["sort_by"], parsed["sort_order"])
+
+    return paginate_and_format(query, "users", query_params)
+
+def get_user_by_id(db: Session, item_id: uuid.UUID, include_deleted: bool = False):
+    query = db.query(User).filter(User.id == item_id)
+    if not include_deleted:
+        query = query.filter(User.deleted_at.is_(None))
+    item = query.first()
     if not item:
         raise HTTPException(status_code=404, detail="This User is not present.")
     return item
 
 def update_user(db: Session, item_id: uuid.UUID, update_data):
-    item = db.query(User).filter(User.id == item_id).first()
+    item = db.query(User).filter(User.id == item_id, User.deleted_at.is_(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This User is not present.")
 
@@ -55,9 +70,28 @@ def update_user(db: Session, item_id: uuid.UUID, update_data):
     return item
 
 def delete_user(db: Session, item_id: uuid.UUID):
-    item = db.query(User).filter(User.id == item_id).first()
+    item = db.query(User).filter(User.id == item_id, User.deleted_at.is_(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This User is not present.")
-    db.delete(item)
+
+    now = datetime.now(timezone.utc)
+    item.deleted_at = now
     db.commit()
+    db.refresh(item)
+    return item
+
+def restore_user(db: Session, item_id: uuid.UUID):
+    item = db.query(User).filter(User.id == item_id, User.deleted_at.isnot(None)).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="This User is not present or not deleted.")
+
+    if item.role_id:
+        from app.models.role import Role
+        role = db.query(Role).filter(Role.id == item.role_id, Role.deleted_at.is_(None)).first()
+        if not role:
+            raise HTTPException(status_code=400, detail="Cannot restore user: associated role is deleted.")
+
+    item.deleted_at = None
+    db.commit()
+    db.refresh(item)
     return item

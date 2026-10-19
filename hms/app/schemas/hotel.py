@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from uuid import UUID
 from decimal import Decimal
 
@@ -19,11 +19,14 @@ class HotelBase(BaseModel):
 class HotelCreate(HotelBase):
     pass
 
+from datetime import datetime
+
 class HotelItem(HotelBase):
     id: UUID
+    deleted_at: datetime | None = None
 
-class HotelListResponse(BaseModel):
-    hotels: list[HotelItem]
+    model_config = ConfigDict(from_attributes=True)
+
 
 class HotelUpdate(BaseModel):
     name: str | None = Field(default=None, description="Letters, numbers, special characters, and spaces. Cannot be exclusively numbers or special characters. Max 255 chars after trimming.", examples=[""])
@@ -38,3 +41,13 @@ class HotelUpdate(BaseModel):
     description: str | None = Field(default=None, description="Detailed notes or description. Leading and trailing whitespaces will be stripped.", examples=[""])
     phone: str | None = Field(default=None, description="Phone contact number.", examples=[""])
     email: EmailStr | None = Field(default=None, description="A valid email address format (e.g. user@example.com).", examples=[""])
+
+class HotelListResponse(BaseModel):
+    total: int = 1
+    page: int = 1
+    limit: int = 10
+    total_pages: int = 1
+
+    hotels: list[HotelItem]
+
+    model_config = ConfigDict(from_attributes=True)

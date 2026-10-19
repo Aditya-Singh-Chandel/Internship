@@ -1,36 +1,50 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
+from app.schemas.booking_item import BookingItemCreate, BookingItemResponse
+
+BookingStatus = Literal["pending", "confirmed", "in_house", "cancelled", "completed"]
 
 class BookingBase(BaseModel):
-    guest_id: UUID = Field(description="Valid value for guest id.", examples=[""])
-    hotel_id: UUID = Field(description="Valid value for hotel id.", examples=[""])
-    room_type_id: UUID = Field(description="Valid value for room type id.", examples=[""])
-    assigned_room_id: UUID | None = Field(default=None, description="Valid value for assigned room id.", examples=[""])
-    checkin_date: date = Field(description="Format: YYYY-MM-DD. Must be a date in the future.", examples=[""])
-    checkout_date: date = Field(description="Format: YYYY-MM-DD. Must be a date in the future.", examples=[""])
-    total_amount: Decimal | None = Field(default=None, description="Total cost in decimal format.", examples=[""])
-    status: str | None = Field(default="confirmed", description="Current status (e.g., active, completed, confirmed).", examples=[""])
-    special_requests: str | None = Field(default=None, description="Detailed notes or description. Leading and trailing whitespaces will be stripped.", examples=[""])
+    hotel_id: UUID = Field(description="Hotel ID for this reservation.", examples=["3fa85f64-5717-4562-b3fc-2c963f66afa6"])
+    guest_id: UUID = Field(description="Valid value for primary booker guest ID.", examples=["3fa85f64-5717-4562-b3fc-2c963f66afa6"])
+    checkin_date: date = Field(description="Format: YYYY-MM-DD. Must be today or a future date.")
+    checkout_date: date = Field(description="Format: YYYY-MM-DD. Must be after checkin_date.")
+    total_amount: Decimal | None = Field(default=None, ge=0, description="Total cost in decimal format. If omitted, auto-calculated from room types and duration.")
+    status: BookingStatus = Field(default="confirmed", description="Current status: pending, confirmed, in_house, cancelled, completed.")
+    special_requests: str | None = Field(default=None, description="Detailed notes or special requests.")
 
 class BookingCreate(BookingBase):
-    pass
+    items: list[BookingItemCreate] = Field(min_length=1, description="List of room types and quantities to book in this reservation.")
 
-class BookingItem(BookingBase):
+class BookingDetailItem(BookingBase):
     id: UUID
     created_at: datetime
+    deleted_at: datetime | None = None
+    booking_items: list[BookingItemResponse] = []
 
-class BookingListResponse(BaseModel):
-    bookings: list[BookingItem]
+    model_config = ConfigDict(from_attributes=True)
+
+class BookingResponse(BookingDetailItem):
+    pass
 
 class BookingUpdate(BaseModel):
-    guest_id: UUID | None = Field(default=None, description="Valid value for guest id.", examples=[""])
-    hotel_id: UUID | None = Field(default=None, description="Valid value for hotel id.", examples=[""])
-    room_type_id: UUID | None = Field(default=None, description="Valid value for room type id.", examples=[""])
-    assigned_room_id: UUID | None = Field(default=None, description="Valid value for assigned room id.", examples=[""])
-    checkin_date: date | None = Field(default=None, description="Format: YYYY-MM-DD. Must be a date in the future.", examples=[""])
-    checkout_date: date | None = Field(default=None, description="Format: YYYY-MM-DD. Must be a date in the future.", examples=[""])
-    total_amount: Decimal | None = Field(default=None, description="Total cost in decimal format.", examples=[""])
-    status: str | None = Field(default=None, description="Current status (e.g., active, completed, confirmed).", examples=[""])
-    special_requests: str | None = Field(default=None, description="Detailed notes or description. Leading and trailing whitespaces will be stripped.", examples=[""])
+    hotel_id: UUID | None = Field(default=None, description="Hotel ID for this reservation.")
+    guest_id: UUID | None = Field(default=None, description="Valid value for guest ID.")
+    checkin_date: date | None = Field(default=None, description="Format: YYYY-MM-DD.")
+    checkout_date: date | None = Field(default=None, description="Format: YYYY-MM-DD.")
+    total_amount: Decimal | None = Field(default=None, ge=0, description="Total cost in decimal format.")
+    status: BookingStatus | None = Field(default=None, description="Current status.")
+    special_requests: str | None = Field(default=None, description="Detailed notes or description.")
+
+class BookingListResponse(BaseModel):
+    total: int = 1
+    page: int = 1
+    limit: int = 10
+    total_pages: int = 1
+
+    bookings: list[BookingDetailItem]
+
+    model_config = ConfigDict(from_attributes=True)

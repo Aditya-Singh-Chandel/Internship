@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-db_url = os.getenv("DATABASE_CONNECTION_LOCAL")
+db_url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_CONNECTION_LOCAL")
 
 db_class = declarative_base()
 engine = create_engine(db_url)

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Uuid
+from sqlalchemy import Column, String, DateTime, ForeignKey, Uuid, Boolean
 from sqlalchemy.orm import relationship
 from app.core.database import db_class
 
@@ -14,5 +14,6 @@ class User(db_class):
     password_hash = Column(String, nullable=False)
     phone = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    deleted_at = Column(DateTime, nullable=True)
 
     role = relationship("Role", back_populates="users")

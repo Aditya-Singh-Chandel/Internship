@@ -1,0 +1,57 @@
+# ==============================================================================
+# docker-compose.yml: Orchestrating the Database and Application Stack
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Service 1: PostgreSQL Database
+  # ----------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: hms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hms
+    ports:
+      # Maps port 5432 on your Windows PC to port 5432 inside the container
+      - "5432:5432"
+    volumes:
+      # Named volume: Persists all database data on your disk even if container is removed
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Tests if PostgreSQL is actually ready to accept queries
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hms"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # Service 2: FastAPI Application
+  # ----------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hms-app
+    restart: unless-stopped
+    ports:
+      # Maps port 8000 on your Windows PC to port 8000 inside the container
+      - "8000:8000"
+    environment:
+      # Notice the host is 'db' (the service name of the Postgres container above)
+      # Docker Compose automatically connects them on a private shared network
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/hms
+      DATABASE_CONNECTION_LOCAL: postgresql://postgres:postgres@db:5432/hms
+    depends_on:
+      db:
+        # Ensures FastAPI only starts AFTER Postgres is fully healthy and accepting connections
+        condition: service_healthy
+
+# ------------------------------------------------------------------------------
+# Persistent Volume Definition
+# ------------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
