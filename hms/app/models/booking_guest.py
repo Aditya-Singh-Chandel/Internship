@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, ForeignKey, Uuid, Boolean, DateTime
+from sqlalchemy import Column, ForeignKey, Uuid, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import db_class
 

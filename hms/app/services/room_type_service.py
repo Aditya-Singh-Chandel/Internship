@@ -1,6 +1,6 @@
-from app.utils.validation_utils import validate_string, validate_future_date
+from app.utils.validation_utils import validate_string
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 import math
 from fastapi import HTTPException
 import uuid
@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 from app.models.room_type import RoomType
 from app.models.room import Room
 from app.models.booking import Booking
+from app.models.booking_item import BookingItem
 from app.models.amenity import Amenity
+from app.models.media import Media
+from app.models.hotel import Hotel
 from app.schemas.room_type import RoomTypeCreate
 
 
@@ -17,7 +20,6 @@ def create_room_type(db: Session, room_type: RoomTypeCreate):
     _data_dict = room_type.model_dump()
     for k, v in _data_dict.items():
         if isinstance(v, str): _data_dict[k] = validate_string(k, v)
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
     db_room_type = RoomType(**_data_dict)
     db.add(db_room_type)
     db.commit()
@@ -62,8 +64,6 @@ def get_room_types(db: Session, query_params: dict | None = None):
                 Room.status != "maintenance"
             ).count()
 
-            from app.models.booking import Booking
-            from app.models.booking_item import BookingItem
             booked_rooms = db.query(func.coalesce(func.sum(BookingItem.quantity), 0)).join(
                 Booking, Booking.id == BookingItem.booking_id
             ).filter(
@@ -112,8 +112,6 @@ def update_room_type(db: Session, item_id: uuid.UUID, update_data):
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -126,10 +124,6 @@ def delete_room_type(db: Session, item_id: uuid.UUID):
         raise HTTPException(status_code=404, detail="This RoomType is not present.")
 
     # Active Booking Safeguard: Block deletion if future or active reservations exist
-    from app.models.booking_item import BookingItem
-    from app.models.booking import Booking
-    from app.models.media import Media
-
     active_count = db.query(BookingItem).join(Booking, BookingItem.booking_id == Booking.id).filter(
         BookingItem.room_type_id == item.id,
         BookingItem.deleted_at.is_(None),
@@ -180,9 +174,6 @@ def restore_room_type(db: Session, item_id: uuid.UUID):
     item = db.query(RoomType).filter(RoomType.id == item_id, RoomType.deleted_at.isnot(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This RoomType is not present or not deleted.")
-
-    from app.models.hotel import Hotel
-    from app.models.media import Media
 
     hotel = db.query(Hotel).filter(Hotel.id == item.hotel_id, Hotel.deleted_at.is_(None)).first()
     if not hotel:

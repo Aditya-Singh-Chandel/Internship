@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime
 from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict
 
 class BookingGuestBase(BaseModel):
     booking_id: UUID = Field(description="Valid value for booking id.", examples=[""])
@@ -8,8 +9,6 @@ class BookingGuestBase(BaseModel):
 
 class BookingGuestCreate(BookingGuestBase):
     pass
-
-from datetime import datetime
 
 class BookingGuestItem(BookingGuestBase):
     id: UUID
@@ -23,12 +22,7 @@ class BookingGuestUpdate(BaseModel):
     guest_id: UUID | None = Field(default=None, description="Valid value for guest id.", examples=[""])
     booking_room_id: UUID | None = Field(default=None, description="Optional room assignment for this companion.")
 
-class BookingGuestListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    booking_guests: list[BookingGuestItem]
-
-    model_config = ConfigDict(from_attributes=True)
+BookingGuestItemResponse = ItemResponse[BookingGuestItem]
+BookingGuestPaginatedResponse = PaginatedResponse[BookingGuestItem]

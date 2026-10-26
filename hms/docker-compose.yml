@@ -43,7 +43,10 @@ services:
       # Notice the host is 'db' (the service name of the Postgres container above)
       # Docker Compose automatically connects them on a private shared network
       DATABASE_URL: postgresql://postgres:postgres@db:5432/hms
-      DATABASE_CONNECTION_LOCAL: postgresql://postgres:postgres@db:5432/hms
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-70f636ea7848576aa60346195014824346a044fcaf70a3ee97a020cfa27a45b9}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
     depends_on:
       db:
         # Ensures FastAPI only starts AFTER Postgres is fully healthy and accepting connections

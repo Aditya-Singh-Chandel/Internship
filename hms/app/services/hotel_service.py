@@ -1,6 +1,6 @@
-from app.utils.validation_utils import validate_string, validate_future_date
+from app.utils.validation_utils import validate_string
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from fastapi import HTTPException
 import uuid
 from sqlalchemy import func, or_, desc, asc
@@ -20,13 +20,12 @@ def create_hotel(db: Session, hotel: HotelCreate):
     _data_dict = hotel.model_dump()
     for k, v in _data_dict.items():
         if isinstance(v, str): _data_dict[k] = validate_string(k, v)
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
     db_hotel = Hotel(**_data_dict)
     db.add(db_hotel)
     db.commit()
     db.refresh(db_hotel)
     return db_hotel
-from app.models.review import Review
+
 def get_hotels(db: Session, query_params: dict | None = None):
     if query_params is None:
         query_params = {}
@@ -139,8 +138,6 @@ def update_hotel(db: Session, item_id: uuid.UUID, update_data):
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -148,9 +145,6 @@ def update_hotel(db: Session, item_id: uuid.UUID, update_data):
     return item
 
 def delete_hotel(db: Session, item_id: uuid.UUID):
-    from app.models.booking import Booking
-    from app.models.media import Media
-
     item = db.query(Hotel).filter(Hotel.id == item_id, Hotel.deleted_at.is_(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This Hotel is not present.")
@@ -204,8 +198,6 @@ def restore_hotel(db: Session, item_id: uuid.UUID):
     item = db.query(Hotel).filter(Hotel.id == item_id, Hotel.deleted_at.isnot(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This Hotel is not present or not deleted.")
-
-    from app.models.media import Media
 
     item.deleted_at = None
 

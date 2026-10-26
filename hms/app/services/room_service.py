@@ -1,12 +1,13 @@
-from app.utils.validation_utils import validate_string, validate_future_date, validate_room_number_unique_in_hotel
+from app.utils.validation_utils import validate_string, validate_room_number_unique_in_hotel
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from fastapi import HTTPException
 import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.room import Room
-from app.models.booking import Booking
+from app.models.room_type import RoomType
+from app.models.booking_room import BookingRoom
 from app.schemas.room import RoomCreate, BulkRoomCreate
 
 
@@ -14,7 +15,6 @@ def create_room(db: Session, room: RoomCreate):
     _data_dict = room.model_dump()
     for k, v in _data_dict.items():
         if isinstance(v, str): _data_dict[k] = validate_string(k, v)
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
 
     # Normalize room number
     _data_dict["room_number"] = _data_dict["room_number"].strip()
@@ -29,7 +29,6 @@ def create_room(db: Session, room: RoomCreate):
     return db_room
 
 def create_rooms_bulk(db: Session, bulk_data: BulkRoomCreate):
-    from app.models.room_type import RoomType
 
     room_type = db.query(RoomType).filter(RoomType.id == bulk_data.room_type_id, RoomType.deleted_at.is_(None)).first()
     if not room_type:
@@ -78,9 +77,13 @@ def get_rooms(db: Session, query_params: dict | None = None):
     if query_params is None:
         query_params = {}
 
+    hotel_id = query_params.pop("hotel_id", None)
     parsed = extract_filters(query_params)
 
     query = db.query(Room)
+    if hotel_id:
+        query = query.join(RoomType, Room.room_type_id == RoomType.id).filter(RoomType.hotel_id == hotel_id)
+
     query = filter_active(query, Room, query_params)
     query = apply_filters(query, Room, parsed["filters"])
     query = apply_sorting(query, Room, parsed["sort_by"], parsed["sort_order"])
@@ -114,8 +117,6 @@ def update_room(db: Session, item_id: uuid.UUID, update_data):
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -134,7 +135,6 @@ def delete_room(db: Session, item_id: uuid.UUID):
     item.deleted_at = now
 
     # Deletion Safeguard: Safely unassign this physical room from any active upcoming booking rooms
-    from app.models.booking_room import BookingRoom
     db.query(BookingRoom).filter(
         BookingRoom.room_id == item.id,
         BookingRoom.deleted_at.is_(None),
@@ -150,7 +150,6 @@ def restore_room(db: Session, item_id: uuid.UUID):
     if not item:
         raise HTTPException(status_code=404, detail="This Room is not present or not deleted.")
 
-    from app.models.room_type import RoomType
     rt = db.query(RoomType).filter(RoomType.id == item.room_type_id, RoomType.deleted_at.is_(None)).first()
     if not rt:
         raise HTTPException(status_code=400, detail="Cannot restore room: parent room type is deleted.")

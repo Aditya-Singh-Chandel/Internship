@@ -1,11 +1,12 @@
-from app.utils.validation_utils import validate_string, validate_future_date
-from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import date, datetime, timezone
-from fastapi import HTTPException
+from datetime import datetime, timezone
 import uuid
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.policy import Policy
+from app.models.hotel import Hotel
 from app.schemas.policy import PolicyCreate
+from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
+from app.utils.validation_utils import validate_string
 
 
 def create_policy(db: Session, policy: PolicyCreate):
@@ -16,7 +17,6 @@ def create_policy(db: Session, policy: PolicyCreate):
             if k == 'description' and not val:
                 raise HTTPException(status_code=400, detail="Policy description cannot be empty.")
             _data_dict[k] = val
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
     db_policy = Policy(**_data_dict)
     db.add(db_policy)
     db.commit()
@@ -57,8 +57,6 @@ def update_policy(db: Session, item_id: uuid.UUID, update_data):
             if key == 'description' and not val:
                 raise HTTPException(status_code=400, detail="Policy description cannot be empty.")
             value = val
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -81,7 +79,6 @@ def restore_policy(db: Session, item_id: uuid.UUID):
     if not item:
         raise HTTPException(status_code=404, detail="This Policy is not present or not deleted.")
 
-    from app.models.hotel import Hotel
     hotel = db.query(Hotel).filter(Hotel.id == item.hotel_id, Hotel.deleted_at.is_(None)).first()
     if not hotel:
         raise HTTPException(status_code=400, detail="Cannot restore policy: associated hotel is deleted.")

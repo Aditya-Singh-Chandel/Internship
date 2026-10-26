@@ -1,8 +1,6 @@
 from app.utils.validation_utils import (
-    validate_room_belongs_to_room_type,
     validate_room_type_availability,
-    validate_assigned_rooms_not_overlapping,
-    validate_string
+    validate_assigned_rooms_not_overlapping
 )
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, OPERATOR_MAP, paginate_and_format
 from datetime import date, datetime, timezone
@@ -17,8 +15,9 @@ from app.models.booking_item import BookingItem
 from app.models.hotel import Hotel
 from app.models.room_type import RoomType
 from app.models.guest import Guest
-from app.models.booking_guest import BookingGuest
 from app.models.booking_room import BookingRoom
+from app.models.booking_guest import BookingGuest
+from app.models.review import Review
 from app.schemas.booking import BookingCreate, BookingUpdate
 
 def create_booking(db: Session, booking: BookingCreate):
@@ -67,7 +66,7 @@ def create_booking(db: Session, booking: BookingCreate):
             requested_rooms=line["quantity"]
         )
 
-        line_price = Decimal(rt.price)
+        line_price = Decimal(str(rt.base_price))
         total_amount += line_price * line["quantity"] * Decimal(nights)
 
         prepared_items.append({
@@ -299,7 +298,6 @@ def delete_booking(db: Session, item_id: uuid.UUID):
     })
 
     # Cascade soft-delete to reviews
-    from app.models.review import Review
     db.query(Review).filter(Review.booking_id == item.id, Review.deleted_at.is_(None)).update({
         Review.deleted_at: now
     })
@@ -313,8 +311,6 @@ def restore_booking(db: Session, item_id: uuid.UUID):
     if not item:
         raise HTTPException(status_code=404, detail="This Booking is not present or not deleted.")
 
-    from app.models.hotel import Hotel
-    from app.models.guest import Guest
     hotel = db.query(Hotel).filter(Hotel.id == item.hotel_id, Hotel.deleted_at.is_(None)).first()
     guest = db.query(Guest).filter(Guest.id == item.guest_id, Guest.deleted_at.is_(None)).first()
     if not hotel:
@@ -337,10 +333,50 @@ def restore_booking(db: Session, item_id: uuid.UUID):
         BookingGuest.deleted_at: None
     })
 
-    from app.models.review import Review
     db.query(Review).filter(Review.booking_id == item.id, Review.deleted_at.isnot(None)).update({
         Review.deleted_at: None
     })
+
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def cancel_booking(db: Session, item_id: uuid.UUID, reason: str | None = None):
+    item = db.query(Booking).options(
+        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms)
+    ).filter(Booking.id == item_id, Booking.deleted_at.is_(None)).first()
+
+    if not item:
+        raise HTTPException(status_code=404, detail="This Booking is not present.")
+
+    if item.status == "cancelled":
+        raise HTTPException(status_code=400, detail="This booking is already cancelled.")
+
+    if item.status in ["in_house", "completed"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel a booking that is currently '{item.status}'."
+        )
+
+    if item.checkin_date < date.today():
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot cancel a booking that has already started or passed."
+        )
+
+    item.status = "cancelled"
+
+    if reason and reason.strip():
+        note = f"[Cancellation Reason: {reason.strip()}]"
+        item.special_requests = f"{item.special_requests}\n{note}" if item.special_requests else note
+
+    # Cancel all active room allocations so physical rooms are freed
+    for b_item in item.booking_items:
+        if b_item.deleted_at is None:
+            for r in b_item.booking_rooms:
+                if r.deleted_at is None and r.status not in ["cancelled", "checked_out"]:
+                    r.status = "cancelled"
 
     db.commit()
     db.refresh(item)

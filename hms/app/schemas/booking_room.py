@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-BookingRoomStatus = Literal["confirmed", "checked_in", "checked_out", "completed", "cancelled"]
+BookingRoomStatus = Literal["assigned", "confirmed", "checked_in", "checked_out", "completed", "cancelled"]
 
 class BookingRoomBase(BaseModel):
     booking_item_id: UUID = Field(description="Booking line item ID.")
@@ -40,15 +40,10 @@ class BookingRoomItem(BookingRoomBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-class BookingRoomListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    booking_rooms: list[BookingRoomItem]
-
-    model_config = ConfigDict(from_attributes=True)
+BookingRoomItemResponse = ItemResponse[BookingRoomItem]
+BookingRoomPaginatedResponse = PaginatedResponse[BookingRoomItem]
 
 class BulkRoomAssignmentItem(BaseModel):
     booking_item_id: UUID = Field(description="ID of the line item to fulfill.")

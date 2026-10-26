@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime
 from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict
 
 class MediaBase(BaseModel):
     hotel_id: UUID | None = Field(default=None, description="Valid value for hotel id.", examples=[""])
@@ -9,8 +10,6 @@ class MediaBase(BaseModel):
 
 class MediaCreate(MediaBase):
     pass
-
-from datetime import datetime
 
 class MediaItem(MediaBase):
     id: UUID
@@ -25,15 +24,10 @@ class MediaUpdate(BaseModel):
     image_url: str | None = Field(default=None, description="Valid value for image url.", examples=[""])
     is_primary: bool | None = Field(default=None, description="Valid value for is primary.", examples=[""])
 
-class MediaListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    media: list[MediaItem]
-
-    model_config = ConfigDict(from_attributes=True)
+MediaItemResponse = ItemResponse[MediaItem]
+MediaPaginatedResponse = PaginatedResponse[MediaItem]
 
 class BulkMediaItem(BaseModel):
     image_url: str = Field(description="Valid URL for image.", examples=["https://example.com/photo.jpg"])

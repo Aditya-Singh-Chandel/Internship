@@ -1,43 +1,27 @@
-from typing import Annotated, Literal
-from decimal import Decimal
-from datetime import date, datetime
-from uuid import UUID
-from fastapi import APIRouter, Depends, status, Form, Request, Query
-import uuid
-from sqlalchemy.orm import Session
-from app.api.deps import get_db
-from app.schemas import booking_guest as bg_schema
-from app.services import booking_guest_service
-
-
+from typing import Annotated
 from enum import Enum
-
-class SortOrder(str, Enum):
-    asc = "asc"
-    desc = "desc"
-
-class StringFilterOperator(str, Enum):
-    eq = "eq"
-    like = "like"
-
-class NumericFilterOperator(str, Enum):
-    eq = "eq"
-    lt = "lt"
-    gt = "gt"
-    lte = "lte"
-    gte = "gte"
+from uuid import UUID
+from fastapi import APIRouter, Depends, status, Form, Query
+from sqlalchemy.orm import Session
+from app.api.deps import get_db, require_staff
+from app.schemas import booking_guest as bg_schema
+from app.schemas.common import ActionResponse, SortOrder
+from app.services import booking_guest_service
 
 
 class BookingGuestSortBy(str, Enum):
     booking_id = "booking_id"
     guest_id = "guest_id"
-router = APIRouter(prefix="/booking-guests", tags=["Booking Guests"])
 
-@router.post("", response_model=bg_schema.BookingGuestListResponse, status_code=status.HTTP_201_CREATED)
+
+router = APIRouter(prefix="/booking-guests", tags=["Booking Guests"], dependencies=[Depends(require_staff)])
+
+@router.post("", response_model=bg_schema.BookingGuestItemResponse, status_code=status.HTTP_201_CREATED)
 def create_booking_guest(booking_guest: Annotated[bg_schema.BookingGuestCreate, Form()], db: Session = Depends(get_db)):
-    return {"booking_guests": [booking_guest_service.create_booking_guest(db=db, booking_guest=booking_guest)]}
+    item = booking_guest_service.create_booking_guest(db=db, booking_guest=booking_guest)
+    return {"success": True, "message": "Booking guest created successfully", "data": item}
 
-@router.get("", response_model=bg_schema.BookingGuestListResponse)
+@router.get("", response_model=bg_schema.BookingGuestPaginatedResponse)
 def read_booking_guests(
     booking_id: UUID | None = Query(default=None),
     guest_id: UUID | None = Query(default=None),
@@ -51,29 +35,33 @@ def read_booking_guests(
     """
     List booking guests with advanced filtering and sorting.
     """
-
-    query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request")}
+    query_params = {k: v for k, v in locals().items() if v is not None and k != "db"}
     return booking_guest_service.get_booking_guests(db=db, query_params=query_params)
 
-@router.get("/{id}", response_model=bg_schema.BookingGuestListResponse)
+@router.get("/{id}", response_model=bg_schema.BookingGuestItemResponse)
 def booking_guest_by_id(
-    id: uuid.UUID,
+    id: UUID,
     include_deleted: bool = Query(default=False, description="Include if soft-deleted"),
     db: Session = Depends(get_db)
 ):
-    return {"booking_guests": [booking_guest_service.get_booking_guest_by_id(db, id, include_deleted=include_deleted)]}
+    item = booking_guest_service.get_booking_guest_by_id(db, id, include_deleted=include_deleted)
+    return {"success": True, "message": "Booking guest retrieved successfully", "data": item}
 
-@router.put("/{id}", response_model=bg_schema.BookingGuestListResponse)
-def update_booking_guest(id: uuid.UUID, update_data: Annotated[bg_schema.BookingGuestUpdate, Form()], db: Session = Depends(get_db)):
-    return {"booking_guests": [booking_guest_service.update_booking_guest(db, id, update_data)]}
+@router.put("/{id}", response_model=bg_schema.BookingGuestItemResponse)
+def update_booking_guest(id: UUID, update_data: Annotated[bg_schema.BookingGuestUpdate, Form()], db: Session = Depends(get_db)):
+    item = booking_guest_service.update_booking_guest(db, id, update_data)
+    return {"success": True, "message": "Booking guest updated successfully", "data": item}
 
-@router.delete("/{id}", response_model=bg_schema.BookingGuestListResponse)
-def delete_booking_guest(id: uuid.UUID, db: Session = Depends(get_db)):
-    return {"booking_guests": [booking_guest_service.delete_booking_guest(db, id)]}
+@router.delete("/{id}", response_model=ActionResponse)
+def delete_booking_guest(id: UUID, db: Session = Depends(get_db)):
+    item = booking_guest_service.delete_booking_guest(db, id)
+    return {"success": True, "message": "Booking guest deleted successfully", "data": {"id": item.id}}
 
-@router.post("/{id}/restore", response_model=bg_schema.BookingGuestListResponse)
-def restore_booking_guest(id: uuid.UUID, db: Session = Depends(get_db)):
+@router.post("/{id}/restore", response_model=bg_schema.BookingGuestItemResponse)
+def restore_booking_guest(id: UUID, db: Session = Depends(get_db)):
     """
     Restore a soft-deleted booking guest.
     """
-    return {"booking_guests": [booking_guest_service.restore_booking_guest(db, id)]}
+    item = booking_guest_service.restore_booking_guest(db, id)
+    return {"success": True, "message": "Booking guest restored successfully", "data": item}
+

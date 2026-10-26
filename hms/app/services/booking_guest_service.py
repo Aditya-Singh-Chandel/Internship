@@ -1,19 +1,19 @@
-from app.utils.validation_utils import validate_string, validate_future_date, validate_booking_capacity
-from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import date, datetime, timezone
-from fastapi import HTTPException
+from datetime import datetime, timezone
 import uuid
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.booking import Booking
 from app.models.booking_guest import BookingGuest
+from app.models.guest import Guest
 from app.schemas.booking_guest import BookingGuestCreate
+from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
+from app.utils.validation_utils import validate_string, validate_booking_capacity
 
 
 def create_booking_guest(db: Session, booking_guest: BookingGuestCreate):
     _data_dict = booking_guest.model_dump()
     for k, v in _data_dict.items():
         if isinstance(v, str): _data_dict[k] = validate_string(k, v)
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
 
     booking_id = _data_dict["booking_id"]
     guest_id = _data_dict["guest_id"]
@@ -96,8 +96,6 @@ def update_booking_guest(db: Session, item_id: uuid.UUID, update_data):
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -120,8 +118,6 @@ def restore_booking_guest(db: Session, item_id: uuid.UUID):
     if not item:
         raise HTTPException(status_code=404, detail="This BookingGuest is not present or not deleted.")
 
-    from app.models.booking import Booking
-    from app.models.guest import Guest
     booking = db.query(Booking).filter(Booking.id == item.booking_id, Booking.deleted_at.is_(None)).first()
     if not booking:
         raise HTTPException(status_code=400, detail="Cannot restore booking guest: parent booking is deleted.")

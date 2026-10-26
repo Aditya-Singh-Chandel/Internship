@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Uuid, Boolean
+from sqlalchemy import Column, String, DateTime, Uuid
 from app.core.database import db_class
 
 class Guest(db_class):

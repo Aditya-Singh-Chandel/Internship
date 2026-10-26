@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime
 from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict
 
 class AmenityBase(BaseModel):
     hotel_id: UUID | None = Field(default=None, description="Valid value for hotel id.", examples=[""])
@@ -8,8 +9,6 @@ class AmenityBase(BaseModel):
 
 class AmenityCreate(AmenityBase):
     pass
-
-from datetime import datetime
 
 class AmenityItem(AmenityBase):
     id: UUID
@@ -23,15 +22,10 @@ class AmenityUpdate(BaseModel):
     room_type_id: UUID | None = Field(default=None, description="Valid value for room type id.", examples=[""])
     name: str | None = Field(default=None, description="Letters, numbers, special characters, and spaces. Cannot be exclusively numbers or special characters. Max 255 chars after trimming.", examples=[""])
 
-class AmenityListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    amenities: list[AmenityItem]
-
-    model_config = ConfigDict(from_attributes=True)
+AmenityItemResponse = ItemResponse[AmenityItem]
+AmenityPaginatedResponse = PaginatedResponse[AmenityItem]
 
 class BulkAmenityItem(BaseModel):
     name: str = Field(description="Amenity name.", examples=["Free Wi-Fi"])

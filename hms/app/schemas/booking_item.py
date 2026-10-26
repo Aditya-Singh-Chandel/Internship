@@ -29,12 +29,7 @@ class BookingItemResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class BookingItemListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    booking_items: list[BookingItemResponse]
-
-    model_config = ConfigDict(from_attributes=True)
+BookingItemItemResponse = ItemResponse[BookingItemResponse]
+BookingItemPaginatedResponse = PaginatedResponse[BookingItemResponse]

@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import datetime
 
 class ReviewBase(BaseModel):
-    guest_id: UUID = Field(description="Valid value for guest id.", examples=[""])
+    guest_id: UUID | None = Field(default=None, description="Valid value for guest id. Auto-injected from customer's session if omitted.", examples=[None])
     booking_id: UUID = Field(description="Valid value for booking id.", examples=[""])
     rating: int = Field(..., ge=1, le=5)
     comment: str | None = Field(default=None, description="Valid value for comment.", examples=[""])
@@ -25,12 +25,7 @@ class ReviewUpdate(BaseModel):
     rating: int | None = Field(default=None, description="Valid value for rating.", examples=[""])
     comment: str | None = Field(default=None, description="Valid value for comment.", examples=[""])
 
-class ReviewListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    reviews: list[ReviewItem]
-
-    model_config = ConfigDict(from_attributes=True)
+ReviewItemResponse = ItemResponse[ReviewItem]
+ReviewPaginatedResponse = PaginatedResponse[ReviewItem]

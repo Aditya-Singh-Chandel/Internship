@@ -1,32 +1,16 @@
-from typing import Annotated, Literal
+from typing import Annotated
 from decimal import Decimal
-from datetime import date, datetime
 from uuid import UUID
-from fastapi import APIRouter, Depends, status, Form, Request, Query
-import uuid
-from sqlalchemy.orm import Session
-from app.api.deps import get_db
-from app.schemas import hotel as hotel_schema
-from app.services import hotel_service
-
-
 from enum import Enum
-
-class SortOrder(str, Enum):
-    asc = "asc"
-    desc = "desc"
-
-class StringFilterOperator(str, Enum):
-    eq = "eq"
-    like = "like"
-
-class NumericFilterOperator(str, Enum):
-    eq = "eq"
-    lt = "lt"
-    gt = "gt"
-    lte = "lte"
-    gte = "gte"
-
+from fastapi import APIRouter, Depends, status, Form, Query, HTTPException
+from sqlalchemy.orm import Session
+from app.api.deps import get_db, require_manager, require_admin, require_staff, require_owner
+from app.models.user import User
+from app.models.hotel import Hotel
+from app.core.roles import UserRole
+from app.schemas import hotel as hotel_schema
+from app.schemas.common import ActionResponse, SortOrder, StringFilterOperator, NumericFilterOperator
+from app.services import hotel_service
 
 class HotelSortBy(str, Enum):
     name = "name"
@@ -34,13 +18,28 @@ class HotelSortBy(str, Enum):
     state = "state"
     country = "country"
     rating = "rating"
+
 router = APIRouter(prefix="/hotels", tags=["Hotels"])
 
-@router.post("", response_model=hotel_schema.HotelListResponse, status_code=status.HTTP_201_CREATED)
-def create_hotel(hotel: Annotated[hotel_schema.HotelCreate, Form()], db: Session = Depends(get_db)):
-    return {"hotels": [hotel_service.create_hotel(db=db, hotel=hotel)]}
+@router.post("", response_model=hotel_schema.HotelItemResponse, status_code=status.HTTP_201_CREATED)
+def create_hotel(
+    hotel: Annotated[hotel_schema.HotelCreate, Form()],
+    current_user: User = Depends(require_owner),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new hotel property.
+    - Owners & Admins can create hotels.
+    - If created by an Owner, the hotel is automatically assigned to them (owner_id = current_user.id).
+    """
+    is_owner = current_user.role and current_user.role.name.lower() == UserRole.OWNER.value
+    if is_owner or not hotel.owner_id:
+        hotel.owner_id = current_user.id
 
-@router.get("", response_model=hotel_schema.HotelListResponse)
+    item = hotel_service.create_hotel(db=db, hotel=hotel)
+    return {"success": True, "message": "Hotel created successfully", "data": item}
+
+@router.get("", response_model=hotel_schema.HotelPaginatedResponse)
 def read_hotels(
     name: str | None = Query(default=None),
     name_op: StringFilterOperator | None = Query(default=None),
@@ -73,29 +72,113 @@ def read_hotels(
     """
     List hotels with advanced filtering and sorting.
     """
-
     query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request")}
     return hotel_service.get_hotels(db=db, query_params=query_params)
 
-@router.get("/{id}", response_model=hotel_schema.HotelListResponse)
+@router.get("/me", response_model=hotel_schema.HotelPaginatedResponse)
+def get_my_hotel(
+    current_user: User = Depends(require_staff),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the hotel profile(s) for the current user:
+    - Owners get all hotels they own.
+    - Managers/Staff get the hotel they are assigned to.
+    """
+    is_owner = current_user.role and current_user.role.name.lower() == UserRole.OWNER.value
+    if is_owner:
+        owned = db.query(Hotel).filter(Hotel.owner_id == current_user.id, Hotel.deleted_at.is_(None)).all()
+        return {
+            "success": True,
+            "message": "Owned hotels retrieved successfully",
+            "data": owned,
+            "pagination": {
+                "total": len(owned),
+                "page": 1,
+                "limit": len(owned) if owned else 10,
+                "total_pages": 1,
+                "has_next": False,
+                "has_prev": False
+            }
+        }
+
+    if not current_user.hotel_id:
+        raise HTTPException(status_code=400, detail="Your user account is not assigned to a specific hotel.")
+    item = hotel_service.get_hotel_by_id(db, current_user.hotel_id)
+    return {
+        "success": True,
+        "message": "Assigned hotel retrieved successfully",
+        "data": [item],
+        "pagination": {
+            "total": 1,
+            "page": 1,
+            "limit": 10,
+            "total_pages": 1,
+            "has_next": False,
+            "has_prev": False
+        }
+    }
+
+@router.get("/{id}", response_model=hotel_schema.HotelItemResponse)
 def hotel_by_id(
-    id: uuid.UUID,
+    id: UUID,
     include_deleted: bool = Query(default=False, description="Include if soft-deleted"),
     db: Session = Depends(get_db)
 ):
-    return {"hotels": [hotel_service.get_hotel_by_id(db, id, include_deleted=include_deleted)]}
+    item = hotel_service.get_hotel_by_id(db, id, include_deleted=include_deleted)
+    return {"success": True, "message": "Hotel retrieved successfully", "data": item}
 
-@router.put("/{id}", response_model=hotel_schema.HotelListResponse)
-def update_hotel(id: uuid.UUID, update_data: Annotated[hotel_schema.HotelUpdate, Form()], db: Session = Depends(get_db)):
-    return {"hotels": [hotel_service.update_hotel(db, id, update_data)]}
+@router.put("/{id}", response_model=hotel_schema.HotelItemResponse)
+def update_hotel(
+    id: UUID,
+    update_data: Annotated[hotel_schema.HotelUpdate, Form()],
+    current_user: User = Depends(require_manager),
+    db: Session = Depends(get_db)
+):
+    """
+    Update hotel details:
+    - Admins can update any hotel.
+    - Owners can update hotels they own.
+    - Managers can update their assigned hotel.
+    """
+    role_name = current_user.role.name.lower() if current_user.role else ""
+    if role_name == UserRole.OWNER.value:
+        target = hotel_service.get_hotel_by_id(db, id)
+        if target.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied. You do not own this hotel.")
+    elif role_name == UserRole.MANAGER.value:
+        if not current_user.hotel_id or current_user.hotel_id != id:
+            raise HTTPException(status_code=403, detail="Access denied. You can only update your own assigned hotel.")
 
-@router.delete("/{id}", response_model=hotel_schema.HotelListResponse)
-def delete_hotel(id: uuid.UUID, db: Session = Depends(get_db)):
-    return {"hotels": [hotel_service.delete_hotel(db, id)]}
+    item = hotel_service.update_hotel(db, id, update_data)
+    return {"success": True, "message": "Hotel updated successfully", "data": item}
 
-@router.post("/{id}/restore", response_model=hotel_schema.HotelListResponse)
-def restore_hotel(id: uuid.UUID, db: Session = Depends(get_db)):
+@router.delete("/{id}", response_model=ActionResponse)
+def delete_hotel(
+    id: UUID,
+    current_user: User = Depends(require_owner),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a hotel property.
+    - Admins can delete any hotel.
+    - Owners can delete hotels they own.
+    - Managers cannot delete hotels.
+    """
+    role_name = current_user.role.name.lower() if current_user.role else ""
+    if role_name == UserRole.OWNER.value:
+        target = hotel_service.get_hotel_by_id(db, id)
+        if target.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied. You do not own this hotel.")
+
+    item = hotel_service.delete_hotel(db, id)
+    return {"success": True, "message": "Hotel deleted successfully", "data": {"id": item.id}}
+
+@router.post("/{id}/restore", response_model=hotel_schema.HotelItemResponse, dependencies=[Depends(require_admin)])
+def restore_hotel(id: UUID, db: Session = Depends(get_db)):
     """
     Restore a soft-deleted hotel and its cascadingly deleted room types, rooms, amenities, policies, and media.
     """
-    return {"hotels": [hotel_service.restore_hotel(db, id)]}
+    item = hotel_service.restore_hotel(db, id)
+    return {"success": True, "message": "Hotel restored successfully", "data": item}
+

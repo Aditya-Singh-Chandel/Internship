@@ -24,12 +24,7 @@ class GuestUpdate(BaseModel):
     phone: str | None = Field(default=None, description="Phone contact number.", examples=[""])
     id_document_number: str | None = Field(default=None, description="Government ID or Passport number.", examples=[""])
 
-class GuestListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    guests: list[GuestItem]
-
-    model_config = ConfigDict(from_attributes=True)
+GuestItemResponse = ItemResponse[GuestItem]
+GuestPaginatedResponse = PaginatedResponse[GuestItem]

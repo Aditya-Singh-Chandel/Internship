@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import HTTPException
 import uuid
@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.models.booking_room import BookingRoom
 from app.models.booking_item import BookingItem
 from app.models.booking import Booking
-from app.models.room import Room
-from app.models.room_type import RoomType
 from app.models.guest import Guest
+from app.models.room import Room
+from app.models.booking_guest import BookingGuest
 from app.schemas.booking_room import BookingRoomCreate, BookingRoomUpdate, BulkRoomAssignmentRequest
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
 from app.utils.validation_utils import (
@@ -98,10 +98,22 @@ def bulk_assign_rooms(db: Session, req: BulkRoomAssignmentRequest):
     assigned_counts = {
         item.id: db.query(BookingRoom).filter(
             BookingRoom.booking_item_id == item.id,
+            BookingRoom.room_id.isnot(None),
             BookingRoom.deleted_at.is_(None)
         ).count()
         for item in booking_items
     }
+
+    # Pre-fetch all active unallocated placeholder rooms for the targeted line items
+    unallocated_placeholders = db.query(BookingRoom).filter(
+        BookingRoom.booking_item_id.in_(b_item_ids),
+        BookingRoom.room_id.is_(None),
+        BookingRoom.deleted_at.is_(None)
+    ).order_by(BookingRoom.created_at.asc()).all()
+
+    unallocated_map = {b_id: [] for b_id in b_item_ids}
+    for ubr in unallocated_placeholders:
+        unallocated_map[ubr.booking_item_id].append(ubr)
 
     created_rooms = []
     assigned_physical_room_ids = []
@@ -126,23 +138,47 @@ def bulk_assign_rooms(db: Session, req: BulkRoomAssignmentRequest):
 
         if assignment.room_id in assigned_physical_room_ids:
             raise HTTPException(status_code=400, detail="Cannot assign the same physical room multiple times in the same batch.")
-        validate_assigned_rooms_not_overlapping(db, [assignment.room_id], booking.checkin_date, booking.checkout_date)
+
+        # Pop next available unallocated placeholder from memory queue
+        unallocated_queue = unallocated_map.get(booking_item.id, [])
+        unallocated_br = unallocated_queue.pop(0) if unallocated_queue else None
+
+        # Resolve effective dates: preserve custom placeholder dates if set, otherwise booking defaults
+        checkin_dt = (unallocated_br.checkin_date if unallocated_br and unallocated_br.checkin_date else booking.checkin_date)
+        checkout_dt = (unallocated_br.checkout_date if unallocated_br and unallocated_br.checkout_date else booking.checkout_date)
+
+        if checkin_dt >= checkout_dt:
+            raise HTTPException(status_code=400, detail="checkout_date must be after checkin_date.")
+
+        validate_assigned_rooms_not_overlapping(db, [assignment.room_id], checkin_dt, checkout_dt)
 
         assigned_physical_room_ids.append(assignment.room_id)
         assigned_counts[booking_item.id] = current_count + 1
 
-        br = BookingRoom(
-            booking_item_id=booking_item.id,
-            room_id=assignment.room_id,
-            guest_id=assignment.guest_id,
-            checkin_date=booking.checkin_date,
-            checkout_date=booking.checkout_date,
-            room_rate=booking_item.unit_price,
-            status="confirmed"
-        )
-        created_rooms.append(br)
+        nights = max(1, (checkout_dt - checkin_dt).days)
+        calculated_rate = Decimal(booking_item.unit_price) * Decimal(nights)
 
-    db.add_all(created_rooms)
+        if unallocated_br:
+            unallocated_br.room_id = assignment.room_id
+            unallocated_br.guest_id = assignment.guest_id
+            unallocated_br.checkin_date = checkin_dt
+            unallocated_br.checkout_date = checkout_dt
+            unallocated_br.room_rate = calculated_rate
+            unallocated_br.status = "confirmed"
+            created_rooms.append(unallocated_br)
+        else:
+            br = BookingRoom(
+                booking_item_id=booking_item.id,
+                room_id=assignment.room_id,
+                guest_id=assignment.guest_id,
+                checkin_date=checkin_dt,
+                checkout_date=checkout_dt,
+                room_rate=calculated_rate,
+                status="confirmed"
+            )
+            db.add(br)
+            created_rooms.append(br)
+
     db.commit()
     for br in created_rooms:
         db.refresh(br)
@@ -295,7 +331,6 @@ def delete_booking_room(db: Session, item_id: uuid.UUID):
     item.deleted_at = now
 
     # Cascade soft-delete to associated booking guests
-    from app.models.booking_guest import BookingGuest
     db.query(BookingGuest).filter(BookingGuest.booking_room_id == item.id, BookingGuest.deleted_at.is_(None)).update({
         BookingGuest.deleted_at: now
     })
@@ -309,14 +344,12 @@ def restore_booking_room(db: Session, item_id: uuid.UUID):
     if not item:
         raise HTTPException(status_code=404, detail="This BookingRoom is not present or not deleted.")
 
-    from app.models.booking_item import BookingItem
     b_item = db.query(BookingItem).filter(BookingItem.id == item.booking_item_id, BookingItem.deleted_at.is_(None)).first()
     if not b_item:
         raise HTTPException(status_code=400, detail="Cannot restore booking room: parent booking item is deleted.")
 
     item.deleted_at = None
 
-    from app.models.booking_guest import BookingGuest
     db.query(BookingGuest).filter(BookingGuest.booking_room_id == item.id, BookingGuest.deleted_at.isnot(None)).update({
         BookingGuest.deleted_at: None
     })

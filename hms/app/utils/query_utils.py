@@ -95,15 +95,17 @@ def extract_filters(query_params: dict, extra_reserved: set | None = None):
 def apply_filters(query, model, filters: list):
     """Apply a list of validated filter dicts to a SQLAlchemy query."""
     for f in filters:
+        if not hasattr(model, f["field"]):
+            continue
         column = getattr(model, f["field"])
-        op_func = OPERATOR_MAP[f["op"]]
+        op_func = OPERATOR_MAP.get(f["op"], OPERATOR_MAP["eq"])
         query = query.filter(op_func(column, f["value"]))
     return query
 
 
 def apply_sorting(query, model, sort_by: str | None, sort_order: str = "asc"):
     """Apply ORDER BY to a SQLAlchemy query."""
-    if sort_by:
+    if sort_by and hasattr(model, sort_by):
         column = getattr(model, sort_by)
         query = query.order_by(
             desc(column) if sort_order == "desc" else asc(column)
@@ -143,16 +145,26 @@ def paginate_query(query, query_params: dict | None = None):
     }
 
 
-def paginate_and_format(query, entity_key: str, query_params: dict | None = None):
+def paginate_and_format(query, entity_key: str = "items", query_params: dict | None = None):
     """
-    Helper that executes pagination and returns standard response dictionary.
+    Helper that executes pagination and returns standard envelope with data and pagination metadata.
     """
     items, meta = paginate_query(query, query_params)
+    total_pages = meta["total_pages"]
+    current_page = meta["page"]
+    entity_name = entity_key.replace("_", " ").title()
     return {
-        "total": meta["total"],
-        "page": meta["page"],
-        "limit": meta["limit"],
-        "total_pages": meta["total_pages"],
-        entity_key: items,
+        "success": True,
+        "message": f"{entity_name} retrieved successfully",
+        "data": items,
+        "items": items,
+        "pagination": {
+            "total": meta["total"],
+            "page": current_page,
+            "limit": meta["limit"],
+            "total_pages": total_pages,
+            "has_next": current_page < total_pages,
+            "has_prev": current_page > 1,
+        }
     }
 

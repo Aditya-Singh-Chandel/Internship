@@ -1,5 +1,5 @@
 from app.utils.validation_utils import (
-    validate_string, validate_future_date, validate_guest_associated_with_booking
+    validate_string, validate_guest_associated_with_booking
 )
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
 from datetime import date, datetime, timezone
@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy.orm import Session
 from app.models.review import Review
 from app.models.booking import Booking
+from app.models.guest import Guest
 from app.schemas.review import ReviewCreate
 
 
@@ -15,7 +16,6 @@ def create_review(db: Session, review: ReviewCreate):
     _data_dict = review.model_dump()
     for k, v in _data_dict.items():
         if isinstance(v, str): _data_dict[k] = validate_string(k, v)
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
 
     booking_id = _data_dict["booking_id"]
     guest_id = _data_dict["guest_id"]
@@ -94,8 +94,6 @@ def update_review(db: Session, item_id: uuid.UUID, update_data):
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -117,9 +115,6 @@ def restore_review(db: Session, item_id: uuid.UUID):
     item = db.query(Review).filter(Review.id == item_id, Review.deleted_at.isnot(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This Review is not present or not deleted.")
-
-    from app.models.guest import Guest
-    from app.models.booking import Booking
 
     guest = db.query(Guest).filter(Guest.id == item.guest_id, Guest.deleted_at.is_(None)).first()
     if not guest:

@@ -1,18 +1,19 @@
-from app.utils.validation_utils import validate_string, validate_future_date, validate_amenity_linkage
-from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import date, datetime, timezone
-from fastapi import HTTPException
+from datetime import datetime, timezone
 import uuid
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.amenity import Amenity
+from app.models.hotel import Hotel
+from app.models.room_type import RoomType
 from app.schemas.amenity import AmenityCreate, BulkAmenityCreate
+from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
+from app.utils.validation_utils import validate_string, validate_amenity_linkage
 
 
 def create_amenity(db: Session, amenity: AmenityCreate):
     _data_dict = amenity.model_dump()
     for k, v in _data_dict.items():
         if isinstance(v, str): _data_dict[k] = validate_string(k, v)
-        elif isinstance(v, date) and k in ["checkin_date", "checkout_date"]: _data_dict[k] = validate_future_date(k, v)
 
     # Validate cross-reference linkage between hotel and room_type
     validate_amenity_linkage(db, _data_dict.get("hotel_id"), _data_dict.get("room_type_id"))
@@ -104,8 +105,6 @@ def update_amenity(db: Session, item_id: uuid.UUID, update_data):
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)
-        elif isinstance(value, date) and key in ["checkin_date", "checkout_date"]:
-            value = validate_future_date(key, value)
         setattr(item, key, value)
 
     db.commit()
@@ -129,12 +128,10 @@ def restore_amenity(db: Session, item_id: uuid.UUID):
         raise HTTPException(status_code=404, detail="This Amenity is not present or not deleted.")
 
     if item.hotel_id:
-        from app.models.hotel import Hotel
         hotel = db.query(Hotel).filter(Hotel.id == item.hotel_id, Hotel.deleted_at.is_(None)).first()
         if not hotel:
             raise HTTPException(status_code=400, detail="Cannot restore amenity: associated hotel is deleted.")
     if item.room_type_id:
-        from app.models.room_type import RoomType
         rt = db.query(RoomType).filter(RoomType.id == item.room_type_id, RoomType.deleted_at.is_(None)).first()
         if not rt:
             raise HTTPException(status_code=400, detail="Cannot restore amenity: associated room type is deleted.")

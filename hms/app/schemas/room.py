@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, field_validator, ConfigDict
-from uuid import UUID
+from datetime import datetime
 from enum import Enum
+from uuid import UUID
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 class RoomStatus(str, Enum):
     available = "available"
@@ -32,8 +33,6 @@ class RoomBase(BaseModel):
 class RoomCreate(RoomBase):
     pass
 
-from datetime import datetime
-
 class RoomItem(RoomBase):
     id: UUID
     deleted_at: datetime | None = None
@@ -63,15 +62,10 @@ class RoomUpdate(BaseModel):
             return None
         return v
 
-class RoomListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    rooms: list[RoomItem]
-
-    model_config = ConfigDict(from_attributes=True)
+RoomItemResponse = ItemResponse[RoomItem]
+RoomPaginatedResponse = PaginatedResponse[RoomItem]
 
 class BulkRoomItem(BaseModel):
     room_number: str = Field(description="Assigned room number or identifier.", examples=["101"])

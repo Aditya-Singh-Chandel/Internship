@@ -1,5 +1,4 @@
 import re
-from datetime import date
 from fastapi import HTTPException
 
 def validate_string(field_name: str, value: str) -> str | None:
@@ -32,15 +31,6 @@ def validate_string(field_name: str, value: str) -> str | None:
         raise HTTPException(status_code=400, detail=f"{field_name} cannot exceed {max_length} characters.")
         
     return new_value
-
-def validate_future_date(field_name: str, value: date) -> date:
-    """
-    Utility function to ensure a submitted date (e.g., checkin_date)
-    is not set in the past.
-    """
-    if value < date.today():
-        raise HTTPException(status_code=400, detail=f"{field_name} must be a date in the future.")
-    return value
 
 
 # ---------------------------------------------------------------------------
@@ -111,67 +101,6 @@ def validate_room_type_availability(db, room_type_id, checkin_date, checkout_dat
         )
 
 
-def validate_hotel_room_availability(db, hotel_id, checkin_date, checkout_date, requested_rooms=1, exclude_booking_id=None):
-    """
-    Ensure the hotel has enough total physical rooms available across all room types
-    for the given dates.
-    Calculates total usable physical rooms belonging to the hotel, minus the total
-    rooms reserved by overlapping active bookings at this hotel.
-    """
-    from app.models.hotel import Hotel
-    from app.models.room import Room
-    from app.models.room_type import RoomType
-    from app.models.booking import Booking
-    from app.models.booking_item import BookingItem
-    from sqlalchemy import func
-
-    hotel = db.query(Hotel).filter(Hotel.id == hotel_id, Hotel.deleted_at.is_(None)).first()
-    if not hotel:
-        raise HTTPException(status_code=404, detail="The specified hotel does not exist.")
-
-    # 1. Total usable physical rooms in this hotel (active room types and active rooms, not in maintenance)
-    total_hotel_rooms = db.query(Room).join(
-        RoomType, Room.room_type_id == RoomType.id
-    ).filter(
-        RoomType.hotel_id == hotel_id,
-        RoomType.deleted_at.is_(None),
-        Room.deleted_at.is_(None),
-        Room.status != "maintenance"
-    ).count()
-
-    if total_hotel_rooms == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="This hotel has no available physical rooms configured."
-        )
-
-    # 2. Sum of BookingItem quantity for overlapping active bookings at this hotel
-    query = db.query(func.coalesce(func.sum(BookingItem.quantity), 0)).join(
-        Booking, Booking.id == BookingItem.booking_id
-    ).filter(
-        Booking.hotel_id == hotel_id,
-        Booking.deleted_at.is_(None),
-        Booking.status.notin_(["cancelled"]),
-        BookingItem.deleted_at.is_(None),
-        Booking.checkin_date < checkout_date,
-        Booking.checkout_date > checkin_date
-    )
-    if exclude_booking_id:
-        query = query.filter(Booking.id != exclude_booking_id)
-
-    currently_reserved = int(query.scalar() or 0)
-    available_rooms = total_hotel_rooms - currently_reserved
-
-    if available_rooms < requested_rooms:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Not enough rooms available at this hotel between {checkin_date} and {checkout_date}. "
-                f"Requested {requested_rooms} room(s), but only {max(0, available_rooms)} available "
-                f"(hotel capacity: {total_hotel_rooms}, currently reserved: {currently_reserved})."
-            )
-        )
-
 
 def validate_guest_associated_with_booking(db, guest_id, booking_id):
     """
@@ -241,14 +170,6 @@ def validate_assigned_rooms_not_overlapping(db, room_ids, checkin_date, checkout
             status_code=400,
             detail=f"Physical room is already assigned to another active booking ({conflicting.checkin_date} to {conflicting.checkout_date})."
         )
-
-def validate_assigned_room_not_overlapping(db, room_id, checkin_date, checkout_date, exclude_booking_id=None, exclude_booking_room_id=None):
-    """
-    Ensure the specific physical room is not already assigned to another
-    overlapping active stay during the requested dates.
-    """
-    if room_id:
-        validate_assigned_rooms_not_overlapping(db, [room_id], checkin_date, checkout_date, exclude_booking_id, exclude_booking_room_id)
 
 
 def validate_booking_capacity(db, booking_id):

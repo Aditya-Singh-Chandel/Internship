@@ -1,14 +1,13 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query
-import uuid
 from sqlalchemy.orm import Session
-from app.api.deps import get_db
+from app.api.deps import get_db, require_staff
 from app.schemas import booking_item as bi_schema
 from app.services import booking_item_service
 
-router = APIRouter(prefix="/booking-items", tags=["Booking Items"])
+router = APIRouter(prefix="/booking-items", tags=["Booking Items"], dependencies=[Depends(require_staff)])
 
-@router.get("", response_model=bi_schema.BookingItemListResponse)
+@router.get("", response_model=bi_schema.BookingItemPaginatedResponse)
 def read_booking_items(
     booking_id: UUID | None = Query(default=None),
     room_type_id: UUID | None = Query(default=None),
@@ -21,10 +20,11 @@ def read_booking_items(
     query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request")}
     return booking_item_service.get_booking_items(db, query_params)
 
-@router.get("/{id}", response_model=bi_schema.BookingItemListResponse)
+@router.get("/{id}", response_model=bi_schema.BookingItemItemResponse)
 def get_booking_item_by_id(
-    id: uuid.UUID,
+    id: UUID,
     include_deleted: bool = Query(default=False, description="Include if soft-deleted"),
     db: Session = Depends(get_db)
 ):
-    return {"booking_items": [booking_item_service.get_booking_item_by_id(db, id, include_deleted=include_deleted)]}
+    item = booking_item_service.get_booking_item_by_id(db, id, include_deleted=include_deleted)
+    return {"success": True, "message": "Booking item retrieved successfully", "data": item}

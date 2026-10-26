@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
-from uuid import UUID
+from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 class HotelBase(BaseModel):
     name: str = Field(description="Letters, numbers, special characters, and spaces. Cannot be exclusively numbers or special characters. Max 255 chars after trimming.", examples=[""])
+    owner_id: UUID | None = Field(default=None, description="Hotel owner user ID. Defaults to the authenticated owner if omitted.", examples=[None])
     address_line1: str = Field(description="Valid value for address line1.", examples=[""])
     address_line2: str | None = Field(default=None, description="Valid value for address line2.", examples=[""])
     city: str = Field(description="Valid value for city.", examples=[""])
@@ -19,8 +21,6 @@ class HotelBase(BaseModel):
 class HotelCreate(HotelBase):
     pass
 
-from datetime import datetime
-
 class HotelItem(HotelBase):
     id: UUID
     deleted_at: datetime | None = None
@@ -30,6 +30,7 @@ class HotelItem(HotelBase):
 
 class HotelUpdate(BaseModel):
     name: str | None = Field(default=None, description="Letters, numbers, special characters, and spaces. Cannot be exclusively numbers or special characters. Max 255 chars after trimming.", examples=[""])
+    owner_id: UUID | None = Field(default=None, description="Valid value for owner id.", examples=[""])
     address_line1: str | None = Field(default=None, description="Valid value for address line1.", examples=[""])
     address_line2: str | None = Field(default=None, description="Valid value for address line2.", examples=[""])
     city: str | None = Field(default=None, description="Valid value for city.", examples=[""])
@@ -42,12 +43,7 @@ class HotelUpdate(BaseModel):
     phone: str | None = Field(default=None, description="Phone contact number.", examples=[""])
     email: EmailStr | None = Field(default=None, description="A valid email address format (e.g. user@example.com).", examples=[""])
 
-class HotelListResponse(BaseModel):
-    total: int = 1
-    page: int = 1
-    limit: int = 10
-    total_pages: int = 1
+from app.schemas.common import ItemResponse, PaginatedResponse
 
-    hotels: list[HotelItem]
-
-    model_config = ConfigDict(from_attributes=True)
+HotelItemResponse = ItemResponse[HotelItem]
+HotelPaginatedResponse = PaginatedResponse[HotelItem]
