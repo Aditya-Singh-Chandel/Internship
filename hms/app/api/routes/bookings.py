@@ -83,6 +83,7 @@ def create_booking(
 def read_bookings(
     hotel_id: UUID | None = Query(default=None),
     guest_id: UUID | None = Query(default=None),
+    my_bookings: bool = Query(default=False, description="Restrict to personal bookings of the authenticated user"),
     rooms_count: int | None = Query(default=None, ge=1),
     rooms_count_op: NumericFilterOperator | None = Query(default=None),
     checkin_date: date | None = Query(default=None),
@@ -108,16 +109,25 @@ def read_bookings(
 ):
     """
     List bookings with ownership scoping:
-    - Customers: automatically filtered to ONLY see their own bookings.
-    - Receptionist/Manager: filtered to their assigned hotel if configured.
-    - Admin: can see all bookings across all hotels.
+    - Customers or my_bookings=True: automatically filtered to ONLY see personal bookings of current_user.
+    - Receptionist/Manager: filtered to their assigned hotel if configured (unless my_bookings=True).
+    - Admin: can see all bookings across all hotels (unless my_bookings=True).
     """
     role_name = current_user.role.name.lower() if current_user.role else "customer"
     query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request", "current_user", "role_name")}
 
-    # Scoping for Customer: only their own bookings
-    if role_name in [UserRole.CUSTOMER.value, "guest"]:
+    # Scoping for Customer or when personal bookings explicitly requested (e.g. My Trips):
+    if my_bookings or role_name in [UserRole.CUSTOMER.value, "guest"]:
+        from app.models.guest import Guest
         user_guest_ids = get_user_guest_ids(db, current_user)
+        matched_guests = db.query(Guest.id).filter(
+            Guest.email.ilike(current_user.email.strip()),
+            Guest.deleted_at.is_(None)
+        ).all()
+        for mg in matched_guests:
+            if mg.id not in user_guest_ids:
+                user_guest_ids.append(mg.id)
+
         if not user_guest_ids:
             return {
                 "success": True,
@@ -132,13 +142,27 @@ def read_bookings(
                     "has_prev": False
                 }
             }
-        query_params["guest_id"] = user_guest_ids[0]
+        query_params["_guest_ids"] = user_guest_ids
+        query_params.pop("guest_id", None)
+        query_params.pop("hotel_id", None)
 
-    # Scoping for Staff: lock to assigned hotel if configured
+    # Scoping for Staff operational view: lock to assigned hotel if configured
     elif role_name in [UserRole.RECEPTIONIST.value, UserRole.MANAGER.value]:
         assigned_hotel = getattr(current_user, "hotel_id", None)
-        if assigned_hotel:
-            query_params["hotel_id"] = assigned_hotel
+        if not assigned_hotel:
+            raise HTTPException(status_code=403, detail="Access denied. You are not assigned to any hotel.")
+        query_params["hotel_id"] = assigned_hotel
+    elif role_name == UserRole.OWNER.value:
+        from app.models.hotel import Hotel
+        owned_hotels = db.query(Hotel.id).filter(Hotel.owner_id == current_user.id, Hotel.deleted_at.is_(None)).all()
+        owned_hotel_ids = [h.id for h in owned_hotels]
+        if not owned_hotel_ids:
+            raise HTTPException(status_code=403, detail="Access denied. You do not own any hotel.")
+        if "hotel_id" in query_params:
+            if query_params["hotel_id"] not in owned_hotel_ids:
+                raise HTTPException(status_code=403, detail="Access denied. You do not own this hotel.")
+        else:
+            query_params["_owner_hotel_ids"] = owned_hotel_ids
 
     return booking_service.get_bookings(db=db, query_params=query_params)
 

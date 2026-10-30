@@ -19,16 +19,59 @@ from app.utils.validation_utils import (
 
 def create_booking_room(db: Session, booking_room: BookingRoomCreate):
     data = booking_room.model_dump()
-    booking_item = db.query(BookingItem).filter(
-        BookingItem.id == data["booking_item_id"],
-        BookingItem.deleted_at.is_(None)
-    ).first()
+    
+    # 1. Resolve booking_item
+    booking_item = None
+    if data.get("booking_item_id"):
+        booking_item = db.query(BookingItem).filter(
+            BookingItem.id == data["booking_item_id"],
+            BookingItem.deleted_at.is_(None)
+        ).first()
+
+    booking = None
+    if booking_item:
+        booking = booking_item.booking
+    elif data.get("booking_id"):
+        booking = db.query(Booking).filter(
+            Booking.id == data["booking_id"],
+            Booking.deleted_at.is_(None)
+        ).first()
+        if booking:
+            booking_item = db.query(BookingItem).filter(
+                BookingItem.booking_id == booking.id,
+                BookingItem.deleted_at.is_(None)
+            ).first()
+            if not booking_item:
+                from app.models.room_type import RoomType
+                rt = None
+                if data.get("room_id"):
+                    r = db.query(Room).filter(Room.id == data["room_id"]).first()
+                    if r:
+                        rt = db.query(RoomType).filter(RoomType.id == r.room_type_id).first()
+                if not rt:
+                    rt = db.query(RoomType).filter(RoomType.hotel_id == booking.hotel_id).first()
+                if rt:
+                    booking_item = BookingItem(
+                        booking_id=booking.id,
+                        room_type_id=rt.id,
+                        quantity=1,
+                        unit_price=rt.base_price
+                    )
+                    db.add(booking_item)
+                    db.commit()
+                    db.refresh(booking_item)
+            if booking_item:
+                data["booking_item_id"] = booking_item.id
+
     if not booking_item:
         raise HTTPException(status_code=404, detail="The specified booking line item does not exist.")
 
-    booking = booking_item.booking
     if not booking or booking.deleted_at is not None:
         raise HTTPException(status_code=404, detail="The master booking does not exist.")
+
+    # Auto resolve guest_id if missing
+    if not data.get("guest_id") and booking.guest_id:
+        data["guest_id"] = booking.guest_id
 
     # Enforce that number of allocated rooms does not exceed booking_item.quantity
     active_rooms_count = db.query(BookingRoom).filter(
@@ -64,6 +107,12 @@ def create_booking_room(db: Session, booking_room: BookingRoomCreate):
     if not data.get("room_rate"):
         nights = max(1, (data["checkout_date"] - data["checkin_date"]).days)
         data["room_rate"] = Decimal(booking_item.unit_price) * Decimal(nights)
+
+    data.pop("booking_id", None)
+    if data.get("room_id") and booking.status == "in_house":
+        data["status"] = "checked_in"
+        data["checked_in_at"] = datetime.now(timezone.utc)
+        db.query(Room).filter(Room.id == data["room_id"]).update({Room.status: "occupied"}, synchronize_session=False)
 
     db_item = BookingRoom(**data)
     db.add(db_item)
@@ -158,13 +207,21 @@ def bulk_assign_rooms(db: Session, req: BulkRoomAssignmentRequest):
         nights = max(1, (checkout_dt - checkin_dt).days)
         calculated_rate = Decimal(booking_item.unit_price) * Decimal(nights)
 
+        is_in_house = booking_item.booking and booking_item.booking.status == "in_house"
+        alloc_status = "checked_in" if is_in_house else "confirmed"
+
+        if is_in_house and assignment.room_id:
+            db.query(Room).filter(Room.id == assignment.room_id).update({Room.status: "occupied"}, synchronize_session=False)
+
         if unallocated_br:
             unallocated_br.room_id = assignment.room_id
             unallocated_br.guest_id = assignment.guest_id
             unallocated_br.checkin_date = checkin_dt
             unallocated_br.checkout_date = checkout_dt
             unallocated_br.room_rate = calculated_rate
-            unallocated_br.status = "confirmed"
+            unallocated_br.status = alloc_status
+            if is_in_house:
+                unallocated_br.checked_in_at = datetime.now(timezone.utc)
             created_rooms.append(unallocated_br)
         else:
             br = BookingRoom(
@@ -174,7 +231,8 @@ def bulk_assign_rooms(db: Session, req: BulkRoomAssignmentRequest):
                 checkin_date=checkin_dt,
                 checkout_date=checkout_dt,
                 room_rate=calculated_rate,
-                status="confirmed"
+                status=alloc_status,
+                checked_in_at=datetime.now(timezone.utc) if is_in_house else None
             )
             db.add(br)
             created_rooms.append(br)

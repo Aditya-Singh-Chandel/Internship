@@ -16,6 +16,9 @@ class RoomTypeCreate(RoomTypeBase):
 class RoomTypeItem(RoomTypeBase):
     id: UUID
     deleted_at: datetime | None = None
+    available_rooms_count: int | None = Field(default=None, description="Physical rooms available for requested dates")
+    total_rooms_count: int | None = Field(default=None, description="Total non-maintenance rooms of this category")
+    is_sold_out: bool | None = Field(default=False, description="True if 0 rooms available for requested dates")
 
     model_config = ConfigDict(from_attributes=True)
 

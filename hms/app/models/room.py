@@ -14,3 +14,11 @@ class Room(db_class):
     deleted_at = Column(DateTime, nullable=True)
 
     room_type = relationship("RoomType")
+
+    @property
+    def hotel_id(self):
+        return self.room_type.hotel_id if self.room_type else None
+
+    @property
+    def room_type_name(self):
+        return self.room_type.name if self.room_type else None

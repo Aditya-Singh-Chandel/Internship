@@ -5,7 +5,7 @@ from app.utils.query_utils import extract_filters, apply_filters, apply_sorting,
 from datetime import date, datetime, timezone
 from fastapi import HTTPException
 import uuid
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.models.review import Review
 from app.models.booking import Booking
 from app.models.guest import Guest
@@ -47,17 +47,30 @@ def get_reviews(db: Session, query_params: dict | None = None):
     if query_params is None:
         query_params = {}
 
-    parsed = extract_filters(query_params)
+    hotel_id = query_params.get("hotel_id")
+    cleaned_params = {k: v for k, v in query_params.items() if k != "hotel_id"}
 
-    query = db.query(Review)
-    query = filter_active(query, Review, query_params)
+    parsed = extract_filters(cleaned_params)
+
+    query = db.query(Review).options(
+        joinedload(Review.guest),
+        joinedload(Review.booking).joinedload(Booking.hotel)
+    )
+    if hotel_id:
+        query = query.join(Booking, Booking.id == Review.booking_id).filter(Booking.hotel_id == hotel_id)
+
+    query = filter_active(query, Review, cleaned_params)
     query = apply_filters(query, Review, parsed["filters"])
     query = apply_sorting(query, Review, parsed["sort_by"], parsed["sort_order"])
 
-    return paginate_and_format(query, "reviews", query_params)
+    result = paginate_and_format(query, "reviews", cleaned_params)
+    return result
 
 def get_review_by_id(db: Session, item_id: uuid.UUID, include_deleted: bool = False):
-    query = db.query(Review).filter(Review.id == item_id)
+    query = db.query(Review).options(
+        joinedload(Review.guest),
+        joinedload(Review.booking).joinedload(Booking.hotel)
+    ).filter(Review.id == item_id)
     if not include_deleted:
         query = query.filter(Review.deleted_at.is_(None))
     item = query.first()

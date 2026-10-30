@@ -110,8 +110,11 @@ def read_rooms(
     Auto-scopes to manager's hotel if logged in without explicit filters.
     """
     query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request", "current_user")}
-    if current_user and current_user.role and current_user.role.name.lower() in [UserRole.MANAGER.value, UserRole.RECEPTIONIST.value]:
-        if current_user.hotel_id:
+    if current_user and current_user.role:
+        r_name = current_user.role.name.lower()
+        if r_name in [UserRole.MANAGER.value, UserRole.RECEPTIONIST.value]:
+            if not current_user.hotel_id:
+                raise HTTPException(status_code=403, detail="Access denied. You are not assigned to any hotel.")
             if not hotel_id and not room_type_id:
                 query_params["hotel_id"] = current_user.hotel_id
             elif hotel_id and hotel_id != current_user.hotel_id:
@@ -120,6 +123,15 @@ def read_rooms(
                 rt = db.query(RoomType).filter(RoomType.id == room_type_id).first()
                 if rt and rt.hotel_id != current_user.hotel_id:
                     raise HTTPException(status_code=403, detail="Access denied. You can only view rooms for your assigned hotel.")
+        elif r_name == UserRole.OWNER.value:
+            from app.models.hotel import Hotel
+            owned_hotel_ids = [h.id for h in db.query(Hotel.id).filter(Hotel.owner_id == current_user.id, Hotel.deleted_at.is_(None)).all()]
+            if not owned_hotel_ids:
+                raise HTTPException(status_code=403, detail="Access denied. You do not own any hotel.")
+            if hotel_id and hotel_id not in owned_hotel_ids:
+                raise HTTPException(status_code=403, detail="Access denied. You do not own this hotel.")
+            if not hotel_id:
+                query_params["_owner_hotel_ids"] = owned_hotel_ids
 
     return room_service.get_rooms(db=db, query_params=query_params)
 

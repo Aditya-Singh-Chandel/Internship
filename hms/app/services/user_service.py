@@ -88,9 +88,23 @@ def get_users(db: Session, query_params: dict | None = None):
     if query_params is None:
         query_params = {}
 
+    excluded_roles = query_params.pop("_excluded_roles", None)
+    owner_hotel_ids = query_params.pop("_owner_hotel_ids", None)
+
     parsed = extract_filters(query_params)
 
-    query = db.query(User).options(joinedload(User.role))
+    query = db.query(User).options(
+        joinedload(User.role),
+        joinedload(User.hotel),
+        joinedload(User.owned_hotels)
+    )
+
+    if excluded_roles:
+        query = query.join(Role, User.role_id == Role.id).filter(~Role.name.in_(excluded_roles))
+
+    if owner_hotel_ids is not None:
+        query = query.filter(User.hotel_id.in_(owner_hotel_ids))
+
     query = filter_active(query, User, query_params)
     query = apply_filters(query, User, parsed["filters"])
     query = apply_sorting(query, User, parsed["sort_by"], parsed["sort_order"])
@@ -98,7 +112,11 @@ def get_users(db: Session, query_params: dict | None = None):
     return paginate_and_format(query, "users", query_params)
 
 def get_user_by_id(db: Session, item_id: UUID, include_deleted: bool = False):
-    query = db.query(User).options(joinedload(User.role)).filter(User.id == item_id)
+    query = db.query(User).options(
+        joinedload(User.role),
+        joinedload(User.hotel),
+        joinedload(User.owned_hotels)
+    ).filter(User.id == item_id)
     if not include_deleted:
         query = query.filter(User.deleted_at.is_(None))
     item = query.first()
@@ -107,19 +125,25 @@ def get_user_by_id(db: Session, item_id: UUID, include_deleted: bool = False):
     return item
 
 def update_user(db: Session, item_id: UUID, update_data):
-    item = db.query(User).filter(User.id == item_id, User.deleted_at.is_(None)).first()
+    item = db.query(User).options(
+        joinedload(User.role),
+        joinedload(User.hotel),
+        joinedload(User.owned_hotels)
+    ).filter(User.id == item_id, User.deleted_at.is_(None)).first()
     if not item:
         raise HTTPException(status_code=404, detail="This User is not present.")
 
     update_data_dict = update_data.model_dump(exclude_unset=True)
+    update_data_dict.pop("hotel_ids", None)
     if "role_name" in update_data_dict and update_data_dict["role_name"]:
         role_obj = get_or_create_role(db, update_data_dict.pop("role_name"))
         item.role_id = role_obj.id
 
     for key, value in update_data_dict.items():
-        if isinstance(value, str):
-            value = validate_string(key, value)
-        setattr(item, key, value)
+        if hasattr(item, key):
+            if isinstance(value, str):
+                value = validate_string(key, value)
+            setattr(item, key, value)
 
     db.commit()
     db.refresh(item)

@@ -17,6 +17,8 @@ class BookingItemUpdate(BaseModel):
     quantity: int | None = Field(default=None, ge=1, le=50)
     unit_price: Decimal | None = Field(default=None, ge=0)
 
+from app.schemas.room_type import RoomTypeItem
+
 class BookingItemResponse(BaseModel):
     id: UUID
     booking_id: UUID
@@ -26,8 +28,10 @@ class BookingItemResponse(BaseModel):
     created_at: datetime | None = None
     deleted_at: datetime | None = None
     booking_rooms: list[BookingRoomItem] = []
+    room_type: RoomTypeItem | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 from app.schemas.common import ItemResponse, PaginatedResponse
 

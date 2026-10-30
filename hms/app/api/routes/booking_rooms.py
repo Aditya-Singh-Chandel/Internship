@@ -7,6 +7,7 @@ from app.api.deps import get_db, require_staff
 from app.models.user import User
 from app.models.booking import Booking
 from app.models.booking_room import BookingRoom
+from app.models.booking_item import BookingItem
 from app.schemas import booking_room as br_schema
 from app.schemas.common import ItemResponse, ActionResponse
 from app.services import booking_room_service
@@ -32,8 +33,14 @@ def create_booking_room(
     """
     Assign a single physical room to a line item using form-data.
     """
-    if current_user.hotel_id:
-        booking = db.query(Booking).filter(Booking.id == booking_room.booking_id).first()
+    target_booking_id = booking_room.booking_id
+    if not target_booking_id and booking_room.booking_item_id:
+        item = db.query(BookingItem).filter(BookingItem.id == booking_room.booking_item_id).first()
+        if item:
+            target_booking_id = item.booking_id
+
+    if current_user.hotel_id and target_booking_id:
+        booking = db.query(Booking).filter(Booking.id == target_booking_id).first()
         if booking and booking.hotel_id != current_user.hotel_id:
             raise HTTPException(status_code=403, detail="Access denied. You can only manage bookings for your assigned hotel.")
     item = booking_room_service.create_booking_room(db, booking_room)

@@ -13,8 +13,6 @@ from app.schemas import room_type as room_type_schema
 from app.schemas.common import ActionResponse, SortOrder, StringFilterOperator, NumericFilterOperator
 from app.services import room_type_service
 
-from enum import Enum
-
 class RoomTypeSortBy(str, Enum):
     name = "name"
     base_price = "base_price"
@@ -44,6 +42,7 @@ def read_room_types(
     checkin_date: date | None = Query(default=None, description="Check-in date (YYYY-MM-DD) to filter room types by availability"),
     checkout_date: date | None = Query(default=None, description="Check-out date (YYYY-MM-DD) to filter room types by availability"),
     rooms_count: int | None = Query(default=1, ge=1, description="Number of rooms required to filter room types by availability"),
+    only_available: bool = Query(default=False, description="If true, only returns categories with physical rooms available"),
     name: str | None = Query(default=None),
     name_op: StringFilterOperator | None = Query(default=None),
     base_price: Decimal | None = Query(default=None),

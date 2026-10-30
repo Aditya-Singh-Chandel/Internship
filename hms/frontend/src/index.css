@@ -1,0 +1,1037 @@
+/* ==========================================================================
+   GrandStay Luxury Hotels & Resorts — Master Design System
+   Vanilla CSS with Harmonious Tokens, Typography & Fluid Micro-Interactions
+   ========================================================================== */
+
+:root {
+  /* Brand Luxury Palette */
+  --gold-50: #fbf8ee;
+  --gold-100: #f5eed3;
+  --gold-200: #ecdda7;
+  --gold-300: #dfc471;
+  --gold-400: #d3ab40;
+  --gold-500: #c59b27; /* Core Gold Accent */
+  --gold-600: #a77c1d;
+  --gold-700: #855c1b;
+  --gold-800: #6d4b1c;
+  --gold-900: #5c3f1d;
+
+  /* Primary Deep Luxury Canvas */
+  --navy-950: #070a12;
+  --navy-900: #0b111e;
+  --navy-850: #10192d;
+  --navy-800: #15223a;
+  --navy-700: #1e3153;
+
+  /* Neutral Surface System */
+  --cream-50: #fdfcf9;
+  --cream-100: #f9f7f1;
+  --cream-200: #f2ede1;
+  --surface-white: #ffffff;
+  --surface-subtle: #f8fafc;
+  --surface-border: #e2e8f0;
+  --surface-border-subtle: rgba(226, 232, 240, 0.8);
+
+  /* Typography Colors */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-white: #f8fafc;
+  --text-gold: #c59b27;
+
+  /* Semantic Feedback */
+  --success: #10b981;
+  --success-bg: #ecfdf5;
+  --error: #ef4444;
+  --error-bg: #fef2f2;
+  --warning: #f59e0b;
+  --warning-bg: #fffbeb;
+
+  /* Typography Scales */
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-sans: 'Outfit', 'Plus Jakarta Sans', -apple-system, sans-serif;
+
+  /* Shadows & Elevation */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px -4px rgba(15, 23, 42, 0.08), 0 4px 8px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 16px 36px -6px rgba(15, 23, 42, 0.12), 0 8px 16px -4px rgba(15, 23, 42, 0.06);
+  --shadow-xl: 0 24px 48px -12px rgba(15, 23, 42, 0.18);
+  --shadow-gold: 0 8px 24px -4px rgba(197, 155, 39, 0.28);
+
+  /* Border Radii */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==========================================================================
+   Lenis Smooth Scrolling
+   ========================================================================== */
+html.lenis, html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+/* Base Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--cream-50);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Typography Helpers */
+h1, h2, h3, h4, .font-serif {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+}
+
+p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+/* Layout Utilities */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content {
+  flex: 1;
+}
+
+.max-width-wrapper {
+  max-width: 1320px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 28px;
+  padding-right: 28px;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .max-width-wrapper {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .max-width-wrapper {
+    padding-left: 56px;
+    padding-right: 56px;
+  }
+}
+
+/* ==========================================================================
+   Luxury Navigation Header
+   ========================================================================== */
+.navbar-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(253, 252, 249, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  transition: all var(--transition-normal);
+}
+
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 76px;
+  gap: 20px;
+}
+
+.brand-emblem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.brand-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--gold-400), var(--gold-600));
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  box-shadow: 0 4px 14px rgba(197, 155, 39, 0.35);
+}
+
+.brand-text-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-title {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--navy-950);
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.brand-subtitle {
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  color: var(--gold-600);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.nav-link-item {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-link-item:hover, .nav-link-item.active {
+  color: var(--gold-600);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ==========================================================================
+   Buttons & Interactive Elements
+   ========================================================================== */
+.btn-primary {
+  background: linear-gradient(135deg, var(--gold-500) 0%, var(--gold-600) 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 10px 22px;
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 14px rgba(197, 155, 39, 0.28);
+  transition: all var(--transition-normal);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(197, 155, 39, 0.38);
+  background: linear-gradient(135deg, var(--gold-400) 0%, var(--gold-500) 100%);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: var(--surface-white);
+  color: var(--navy-900);
+  border: 1px solid var(--surface-border);
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-secondary:hover {
+  background: var(--cream-100);
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.btn-concierge-pill {
+  background: linear-gradient(135deg, var(--navy-900), var(--navy-800));
+  color: #ffffff;
+  border: 1px solid rgba(197, 155, 39, 0.4);
+  font-weight: 500;
+  font-size: 0.86rem;
+  padding: 8px 18px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(11, 17, 30, 0.2);
+  transition: all var(--transition-normal);
+}
+
+.btn-concierge-pill:hover {
+  border-color: var(--gold-400);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(11, 17, 30, 0.3);
+}
+
+/* User Profile Badge in Nav */
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 8px;
+  background: var(--surface-white);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.user-menu-trigger:hover {
+  border-color: var(--gold-400);
+  box-shadow: var(--shadow-sm);
+}
+
+.user-avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-400), var(--gold-600));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.user-name-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--navy-900);
+}
+
+/* ==========================================================================
+   Hero Section & Search Header
+   ========================================================================== */
+.hero-container-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.hero-section {
+  position: relative;
+  min-height: 480px;
+  background: linear-gradient(180deg, rgba(11, 17, 30, 0.72) 0%, rgba(11, 17, 30, 0.88) 100%),
+              url('https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1920&q=80') center/cover no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  padding: 80px 24px 110px;
+  text-align: center;
+}
+
+.hero-content {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(197, 155, 39, 0.25);
+  border: 1px solid rgba(197, 155, 39, 0.45);
+  color: var(--gold-300);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 6px 18px;
+  border-radius: var(--radius-full);
+  margin-bottom: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.hero-headline {
+  font-size: clamp(2.4rem, 4.5vw, 3.8rem);
+  color: #ffffff;
+  font-weight: 700;
+  margin-bottom: 16px;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+  line-height: 1.15;
+}
+
+.hero-headline span {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--gold-300);
+}
+
+.hero-subtext {
+  font-size: 1.08rem;
+  color: rgba(248, 250, 252, 0.9);
+  max-width: 660px;
+  margin: 0 auto 28px;
+  line-height: 1.6;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.search-bar-floating-wrap {
+  position: relative;
+  margin-top: -55px;
+  z-index: 30;
+  width: 100%;
+}
+
+/* Floating Search Bar */
+.search-bar-card {
+  position: relative;
+  z-index: 20;
+  background: var(--surface-white);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 45px -12px rgba(11, 17, 30, 0.18), 0 0 0 1px rgba(226, 232, 240, 0.9);
+  padding: 16px 24px;
+  display: grid;
+  grid-template-columns: 1.4fr 1.1fr 1.1fr 0.9fr auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.search-field-item {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 12px;
+  border-right: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.search-field-item:last-of-type {
+  border-right: none;
+}
+
+.search-field-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.search-field-input {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--navy-900);
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+}
+
+.search-field-input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+/* ==========================================================================
+   Hotel Discovery Catalog
+   ========================================================================== */
+.catalog-section {
+  padding: 64px 0 96px;
+}
+
+.section-head-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 36px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.section-title {
+  font-size: 2.2rem;
+  color: var(--navy-950);
+}
+
+.section-subtitle {
+  font-size: 0.98rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+/* Filter Pills */
+.filter-pills-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  padding: 8px 18px;
+  border-radius: var(--radius-full);
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: var(--surface-white);
+  border: 1px solid var(--surface-border);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.filter-pill:hover {
+  border-color: var(--gold-400);
+  color: var(--navy-900);
+}
+
+.filter-pill.active {
+  background: var(--navy-900);
+  color: #ffffff;
+  border-color: var(--navy-900);
+}
+
+/* Hotel Grid */
+.hotels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 32px;
+}
+
+@media (max-width: 1180px) and (min-width: 768px) {
+  .hotels-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .hotels-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hotel-card {
+  background: var(--surface-white);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-normal);
+  display: flex;
+  flex-direction: column;
+}
+
+.hotel-card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(197, 155, 39, 0.35);
+}
+
+.hotel-card-media {
+  position: relative;
+  height: 240px;
+  overflow: hidden;
+  background: #1e293b;
+}
+
+.hotel-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--transition-smooth);
+}
+
+.hotel-card:hover .hotel-card-img {
+  transform: scale(1.05);
+}
+
+.hotel-badge-city {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: rgba(11, 17, 30, 0.75);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.hotel-badge-rating {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: var(--surface-white);
+  color: var(--navy-900);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hotel-card-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.hotel-card-title {
+  font-size: 1.35rem;
+  margin-bottom: 8px;
+  color: var(--navy-950);
+}
+
+.hotel-card-desc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hotel-amenities-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.amenity-tag {
+  background: var(--cream-100);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.hotel-card-footer {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hotel-price-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.price-eyebrow {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.price-amount {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--navy-950);
+}
+
+.price-amount span {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Modals & Overlays (Detail, Booking, Auth, Trips)
+   ========================================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(7, 10, 18, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn var(--transition-fast) forwards;
+}
+
+.modal-card {
+  background: var(--surface-white);
+  border-radius: var(--radius-xl);
+  max-width: 640px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: var(--shadow-xl);
+  position: relative;
+  animation: slideUp var(--transition-normal) forwards;
+}
+
+.modal-card::-webkit-scrollbar {
+  width: 8px;
+}
+.modal-card::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+}
+.modal-card::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 4px;
+}
+.modal-card::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-500);
+}
+
+.modal-card.modal-lg {
+  max-width: 960px;
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(241, 245, 249, 0.9);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all var(--transition-fast);
+  z-index: 10;
+}
+
+.modal-close-btn:hover {
+  background: #e2e8f0;
+  color: var(--navy-950);
+}
+
+/* ==========================================================================
+   AI Concierge Floating Launcher & Window
+   ========================================================================== */
+.concierge-launcher {
+  position: fixed;
+  bottom: 20px;
+  right: 24px;
+  z-index: 150;
+  background: linear-gradient(135deg, var(--navy-900), var(--navy-800));
+  border: 1px solid rgba(197, 155, 39, 0.5);
+  color: #ffffff;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  box-shadow: 0 8px 30px rgba(11, 17, 30, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  transition: all var(--transition-normal);
+  cursor: pointer;
+}
+
+.concierge-launcher:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 12px 36px rgba(197, 155, 39, 0.3);
+  border-color: var(--gold-400);
+}
+
+.concierge-icon-orb {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-400), var(--gold-600));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+/* Concierge Drawer Panel */
+.concierge-drawer {
+  position: fixed;
+  bottom: 74px;
+  right: 24px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  height: min(560px, calc(100dvh - 98px));
+  max-height: calc(100dvh - 98px);
+  background: var(--surface-white);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 50px rgba(11, 17, 30, 0.3);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 150;
+  animation: slideUp var(--transition-normal) forwards;
+}
+
+.concierge-drawer-head {
+  padding: 14px 18px;
+  background: linear-gradient(135deg, var(--navy-900), var(--navy-850));
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(197, 155, 39, 0.3);
+  flex-shrink: 0;
+}
+
+.concierge-head-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.concierge-drawer-messages {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--cream-50);
+}
+
+.concierge-chips-bar {
+  scrollbar-width: thin;
+}
+
+.concierge-chips-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.concierge-chips-bar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+.chat-bubble {
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  max-width: 86%;
+}
+
+.chat-bubble.user {
+  align-self: flex-end;
+  background: var(--navy-900);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface-white);
+  color: var(--text-primary);
+  border: 1px solid var(--surface-border);
+  border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow-xs);
+}
+
+.concierge-message-body p {
+  margin: 0 0 8px;
+  line-height: 1.55;
+}
+
+.concierge-message-body p:last-child {
+  margin-bottom: 0;
+}
+
+.concierge-message-body ul,
+.concierge-message-body ol {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+}
+
+.concierge-message-body li {
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+
+.concierge-message-body strong {
+  font-weight: 700;
+  color: var(--navy-950);
+}
+
+.chat-bubble.user .concierge-message-body strong {
+  color: #ffffff;
+}
+
+.concierge-message-body em {
+  font-style: italic;
+  opacity: 0.95;
+}
+
+.concierge-message-body hr {
+  border: none;
+  border-top: 1px solid var(--surface-border);
+  margin: 10px 0;
+}
+
+
+.concierge-drawer-input-bar {
+  padding: 12px 14px;
+  background: var(--surface-white);
+  border-top: 1px solid var(--surface-border);
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast-item {
+  pointer-events: auto;
+  background: var(--navy-900);
+  color: #ffffff;
+  padding: 12px 20px;
+  border-radius: var(--radius-full);
+  font-size: 0.86rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 200ms ease-out;
+  border-left: 4px solid var(--gold-500);
+}
+
+/* Responsive Rules */
+@media (max-width: 900px) {
+  .search-bar-card {
+    grid-template-columns: 1fr;
+    margin-top: -30px;
+  }
+  .search-field-item {
+    border-right: none;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .hotels-grid {
+    grid-template-columns: 1fr;
+  }
+  .nav-links {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .concierge-drawer {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+    bottom: 66px;
+    height: calc(100dvh - 78px);
+    max-height: calc(100dvh - 78px);
+    border-radius: var(--radius-lg);
+  }
+  .concierge-launcher {
+    right: 12px;
+    bottom: 14px;
+  }
+}

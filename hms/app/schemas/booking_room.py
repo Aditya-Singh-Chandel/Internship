@@ -7,9 +7,10 @@ from typing import Literal
 BookingRoomStatus = Literal["assigned", "confirmed", "checked_in", "checked_out", "completed", "cancelled"]
 
 class BookingRoomBase(BaseModel):
-    booking_item_id: UUID = Field(description="Booking line item ID.")
+    booking_item_id: UUID | None = Field(default=None, description="Booking line item ID.")
+    booking_id: UUID | None = Field(default=None, description="Master booking ID.")
     room_id: UUID | None = Field(default=None, description="Physical room assigned (door number).")
-    guest_id: UUID = Field(description="Resident guest for this specific room.")
+    guest_id: UUID | None = Field(default=None, description="Resident guest for this specific room.")
     status: BookingRoomStatus = Field(default="confirmed", description="Per-room status: confirmed, checked_in, checked_out, completed, cancelled.")
     checkin_date: date | None = Field(default=None, description="Format: YYYY-MM-DD. Defaults to master booking checkin_date if omitted.")
     checkout_date: date | None = Field(default=None, description="Format: YYYY-MM-DD. Defaults to master booking checkout_date if omitted.")
@@ -35,6 +36,9 @@ class BookingRoomItem(BookingRoomBase):
     id: UUID
     checkin_date: date
     checkout_date: date
+    room_number: str | None = None
+    floor: int | None = None
+    guest_name: str | None = None
     created_at: datetime
     deleted_at: datetime | None = None
 

@@ -13,6 +13,9 @@ class ReviewCreate(ReviewBase):
 
 class ReviewItem(ReviewBase):
     id: UUID
+    hotel_id: UUID | None = None
+    guest_name: str | None = None
+    hotel_name: str | None = None
     created_at: datetime
     deleted_at: datetime | None = None
 

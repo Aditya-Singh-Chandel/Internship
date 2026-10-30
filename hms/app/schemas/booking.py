@@ -19,11 +19,27 @@ class BookingBase(BaseModel):
 class BookingCreate(BookingBase):
     items: list[BookingItemCreate] = Field(min_length=1, description="List of room types and quantities to book in this reservation.")
 
+from app.schemas.guest import GuestItem
+from app.schemas.hotel import HotelItem
+
+class BookingReviewItem(BaseModel):
+    id: UUID
+    guest_id: UUID
+    rating: int
+    comment: str | None = None
+    created_at: datetime
+    deleted_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 class BookingDetailItem(BookingBase):
     id: UUID
     created_at: datetime
     deleted_at: datetime | None = None
     booking_items: list[BookingItemResponse] = []
+    guest: GuestItem | None = None
+    hotel: HotelItem | None = None
+    reviews: list[BookingReviewItem] = []
 
     model_config = ConfigDict(from_attributes=True)
 

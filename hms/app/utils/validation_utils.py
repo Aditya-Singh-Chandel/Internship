@@ -112,20 +112,27 @@ def validate_guest_associated_with_booking(db, guest_id, booking_id):
     """
     from app.models.booking import Booking
     from app.models.booking_guest import BookingGuest
+    from app.models.guest import Guest
+
+    if not guest_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Guest identity is missing or unverified. Please sign in with the verified account that completed this reservation."
+        )
 
     booking = db.query(Booking).filter(Booking.id == booking_id, Booking.deleted_at.is_(None)).first()
     if not booking:
         raise HTTPException(status_code=404, detail="The specified booking does not exist.")
 
-    # Check 1: Primary booker
+    # Check 1: Primary booker by direct ID
     if str(booking.guest_id) == str(guest_id):
         return True
 
-    # Check 2: Resident room guest
+    # Check 2: Resident room guest by direct ID
     if any(str(br.guest_id) == str(guest_id) for bi in booking.booking_items for br in bi.booking_rooms):
         return True
 
-    # Check 3: Companion guest
+    # Check 3: Companion guest by direct ID
     bg = db.query(BookingGuest).filter(
         BookingGuest.booking_id == booking_id,
         BookingGuest.guest_id == guest_id,
@@ -134,9 +141,29 @@ def validate_guest_associated_with_booking(db, guest_id, booking_id):
     if bg:
         return True
 
+    # Check 4: Association by verified guest email match
+    target_guest = db.query(Guest).filter(Guest.id == guest_id).first()
+    if target_guest and target_guest.email:
+        t_email = target_guest.email.strip().lower()
+        primary_g = db.query(Guest).filter(Guest.id == booking.guest_id).first()
+        if primary_g and primary_g.email and primary_g.email.strip().lower() == t_email:
+            return True
+        for bi in booking.booking_items:
+            for br in bi.booking_rooms:
+                if br.guest and br.guest.email and br.guest.email.strip().lower() == t_email:
+                    return True
+        companion_emails = db.query(Guest.email).join(BookingGuest, BookingGuest.guest_id == Guest.id).filter(
+            BookingGuest.booking_id == booking_id,
+            BookingGuest.deleted_at.is_(None)
+        ).all()
+        if any(ce[0] and ce[0].strip().lower() == t_email for ce in companion_emails):
+            return True
+
+    primary_g = db.query(Guest).filter(Guest.id == booking.guest_id).first()
+    booker_info = f"'{primary_g.name}' ({primary_g.email})" if primary_g else "another guest"
     raise HTTPException(
         status_code=400,
-        detail="The guest is not associated with this booking and cannot submit a review for it."
+        detail=f"The guest is not associated with this booking. This reservation was booked under {booker_info}."
     )
 
 

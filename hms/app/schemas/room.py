@@ -33,11 +33,17 @@ class RoomBase(BaseModel):
 class RoomCreate(RoomBase):
     pass
 
+from app.schemas.room_type import RoomTypeItem
+
 class RoomItem(RoomBase):
     id: UUID
+    hotel_id: UUID | None = None
+    room_type_name: str | None = None
+    room_type: RoomTypeItem | None = None
     deleted_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 class RoomUpdate(BaseModel):

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 from uuid import UUID
 from datetime import datetime
 from app.schemas.role import RoleItem
@@ -10,6 +10,30 @@ class UserBase(BaseModel):
     role_id: UUID | None = Field(default=None, description="Valid value for role id. Optional if role_name is provided.", examples=[None])
     role_name: str | None = Field(default=None, description="Role name ('admin', 'manager', 'receptionist', 'customer'). Optional if role_id is provided.", examples=["customer"])
     hotel_id: UUID | None = Field(default=None, description="Optional assigned hotel ID for staff members (receptionist/manager).", examples=[None])
+    hotel_ids: list[UUID] | None = Field(default=None, description="Optional list or comma-separated hotel IDs for owner multi-property portfolios.")
+
+    @field_validator("hotel_ids", mode="before")
+    @classmethod
+    def parse_hotel_ids(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            results = []
+            for item in v:
+                if isinstance(item, str):
+                    for sub in item.split(","):
+                        sub = sub.strip()
+                        if sub:
+                            results.append(UUID(sub))
+                elif isinstance(item, UUID):
+                    results.append(item)
+            return results
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            return [UUID(sub.strip()) for sub in v.split(",") if sub.strip()]
+        return v
 
 class UserCreate(UserBase):
     password: str = Field(description="Strong password for authentication.", examples=["Secret123!"])
@@ -26,6 +50,8 @@ class UserRegister(BaseModel):
 class UserItem(UserBase):
     id: UUID
     role: RoleItem | None = None
+    assigned_property_name: str | None = None
+    owned_hotel_ids: list[UUID] = []
     created_at: datetime
     deleted_at: datetime | None = None
 
@@ -38,6 +64,30 @@ class UserUpdate(BaseModel):
     role_id: UUID | None = Field(default=None, description="Valid value for role id.", examples=[""])
     role_name: str | None = Field(default=None, description="Role name ('admin', 'manager', 'receptionist', 'customer').", examples=[""])
     hotel_id: UUID | None = Field(default=None, description="Optional assigned hotel ID for staff.", examples=[None])
+    hotel_ids: list[UUID] | None = Field(default=None, description="Optional list or comma-separated hotel IDs for owner multi-property portfolios.")
+
+    @field_validator("hotel_ids", mode="before")
+    @classmethod
+    def parse_hotel_ids(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            results = []
+            for item in v:
+                if isinstance(item, str):
+                    for sub in item.split(","):
+                        sub = sub.strip()
+                        if sub:
+                            results.append(UUID(sub))
+                elif isinstance(item, UUID):
+                    results.append(item)
+            return results
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            return [UUID(sub.strip()) for sub in v.split(",") if sub.strip()]
+        return v
 
 from app.schemas.common import ItemResponse, PaginatedResponse
 

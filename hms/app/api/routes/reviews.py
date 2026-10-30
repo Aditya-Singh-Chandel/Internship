@@ -2,13 +2,16 @@ from typing import Annotated
 from datetime import datetime
 from uuid import UUID
 from fastapi import APIRouter, Depends, status, Form, Query, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db, get_current_user, require_manager
 from app.models.user import User
 from app.models.guest import Guest
 from app.models.booking import Booking
+from app.models.booking_item import BookingItem
+from app.models.booking_room import BookingRoom
+from app.models.booking_guest import BookingGuest
 from app.core.roles import UserRole
-from app.utils.scoping_utils import verify_review_access, get_or_create_guest_for_user
+from app.utils.scoping_utils import verify_review_access, get_or_create_guest_for_user, get_user_guest_ids
 from app.schemas import review as review_schema
 from app.schemas.common import ActionResponse, SortOrder, NumericFilterOperator
 from app.services import review_service
@@ -29,38 +32,72 @@ def create_review(
 ):
     """
     Submit a hotel review:
-    - Customers: guest_id is automatically injected from their logged-in account if omitted.
-    - Customers can ONLY review a booking that they completed personally.
+    - Automatically links the review to the verified guest identity of the signed-in user.
+    - Validates that the signed-in user is associated with this booking (as primary booker,
+      resident room guest, or companion guest).
+    - If user is signed in under a different identity (e.g. manager or different guest), returns
+      an informative 403 Forbidden explaining the account mismatch.
     """
-    role_name = current_user.role.name.lower() if current_user.role else "customer"
+    booking = db.query(Booking).options(
+        joinedload(Booking.guest),
+        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms).joinedload(BookingRoom.guest)
+    ).filter(Booking.id == review.booking_id, Booking.deleted_at.is_(None)).first()
 
-    if role_name in [UserRole.CUSTOMER.value, "guest"]:
-        # Auto-provision/inject guest_id if omitted
-        if not review.guest_id:
-            guest = get_or_create_guest_for_user(db, current_user)
-            review.guest_id = guest.id
-        else:
-            # Verify guest belongs to this user
-            guest = db.query(Guest).filter(Guest.id == review.guest_id, Guest.deleted_at.is_(None)).first()
-            if not guest or (guest.email and guest.email.strip().lower() != current_user.email.strip().lower()):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied. You can only submit reviews using your own verified guest identity."
-                )
+    if not booking:
+        raise HTTPException(status_code=404, detail="The specified booking does not exist.")
 
-        # Verify booking belongs to this guest
-        booking = db.query(Booking).filter(Booking.id == review.booking_id, Booking.deleted_at.is_(None)).first()
-        if not booking or booking.guest_id != guest.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. You can only review a booking that belongs to your guest profile."
-            )
+    # Find all guest profiles corresponding to current user
+    user_guest_ids = get_user_guest_ids(db, current_user)
+    primary_guest = get_or_create_guest_for_user(db, current_user)
+    if primary_guest.id not in user_guest_ids:
+        user_guest_ids.append(primary_guest.id)
+
+    user_email = current_user.email.strip().lower()
+
+    # Determine if user is associated with this booking
+    is_primary = (booking.guest_id in user_guest_ids) or (
+        booking.guest and booking.guest.email and booking.guest.email.strip().lower() == user_email
+    )
+
+    room_resident_guest_id = None
+    for bi in (booking.booking_items or []):
+        for br in (bi.booking_rooms or []):
+            if br.guest_id in user_guest_ids:
+                room_resident_guest_id = br.guest_id
+                break
+            if br.guest and br.guest.email and br.guest.email.strip().lower() == user_email:
+                room_resident_guest_id = br.guest_id
+                break
+
+    companion_guest = db.query(BookingGuest).filter(
+        BookingGuest.booking_id == booking.id,
+        BookingGuest.guest_id.in_(user_guest_ids),
+        BookingGuest.deleted_at.is_(None)
+    ).first()
+
+    if is_primary:
+        effective_guest_id = booking.guest_id
+    elif room_resident_guest_id:
+        effective_guest_id = room_resident_guest_id
+    elif companion_guest:
+        effective_guest_id = companion_guest.guest_id
+    else:
+        booking_guest_name = booking.guest.name if booking.guest else "another guest"
+        booking_guest_email = booking.guest.email if booking.guest else "a different email address"
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied. You are signed in as '{current_user.email}', but this reservation was booked by '{booking_guest_name}' ({booking_guest_email}). Only the verified resident guest who completed this stay can submit a review."
+        )
+
+    # Set review.guest_id to the verified resident guest on this booking
+    review.guest_id = effective_guest_id
 
     item = review_service.create_review(db=db, review=review)
     return {"success": True, "message": "Review submitted successfully", "data": item}
 
 @router.get("", response_model=review_schema.ReviewPaginatedResponse)
 def read_reviews(
+    hotel_id: UUID | None = Query(default=None, description="Filter reviews for a specific hotel"),
     guest_id: UUID | None = Query(default=None),
     booking_id: UUID | None = Query(default=None),
     rating: int | None = Query(default=None),

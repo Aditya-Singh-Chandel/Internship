@@ -22,3 +22,4 @@ class Booking(db_class):
     guest = relationship("Guest")
     booking_guests = relationship("BookingGuest", back_populates="booking")
     booking_items = relationship("BookingItem", back_populates="booking")
+    reviews = relationship("Review", primaryjoin="and_(Booking.id==Review.booking_id, Review.deleted_at.is_(None))", back_populates="booking")

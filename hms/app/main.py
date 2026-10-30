@@ -5,13 +5,14 @@ from app.core.database import engine, db_class
 from app.models import (
     role, user, guest, hotel, room_type, room, 
     policy, amenity, media, booking, booking_item, booking_room, booking_guest, review,
-    refresh_token
+    refresh_token, document, chat
 )
 
 from app.api.routes import (
     auth, roles, users, guests, hotels, room_types, rooms, 
     policies, amenities, media as media_routes, 
-    bookings, booking_items, booking_rooms, booking_guests, reviews
+    bookings, booking_items, booking_rooms, booking_guests, reviews,
+    documents, chat
 )
 
 db_class.metadata.create_all(bind=engine)
@@ -21,7 +22,15 @@ app = FastAPI(title="Hotel Booking Engine API")
 # Allow the HTML frontend to call this API from any origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -98,8 +107,31 @@ def home():
     return {
         "success": True,
         "message": "Welcome to Hotel Management System (HMS) API",
-        "data": {"status": "online", "version": "1.0.0"}
+        "data": {"status": "online", "version": "1.0.0", "ui_url": "/app"}
     }
+
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+dist_path = os.path.join(frontend_path, "dist")
+if os.path.isdir(dist_path):
+    assets_path = os.path.join(dist_path, "assets")
+    if os.path.isdir(assets_path):
+        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+
+    @app.get("/app", response_class=FileResponse, tags=["Frontend"])
+    @app.get("/ui", response_class=FileResponse, tags=["Frontend"])
+    def get_frontend_ui():
+        return FileResponse(os.path.join(dist_path, "index.html"))
+elif os.path.isdir(frontend_path):
+    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+
+    @app.get("/app", response_class=FileResponse, tags=["Frontend"])
+    @app.get("/ui", response_class=FileResponse, tags=["Frontend"])
+    def get_frontend_ui():
+        return FileResponse(os.path.join(frontend_path, "index.html"))
 
 
 app.include_router(auth.router)
@@ -117,3 +149,5 @@ app.include_router(booking_items.router)
 app.include_router(booking_rooms.router)
 app.include_router(booking_guests.router)
 app.include_router(reviews.router)
+app.include_router(documents.router)
+app.include_router(chat.router)

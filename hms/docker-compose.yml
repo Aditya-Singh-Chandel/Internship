@@ -7,7 +7,7 @@ services:
   # Service 1: PostgreSQL Database
   # ----------------------------------------------------------------------------
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: hms-postgres
     restart: unless-stopped
     environment:

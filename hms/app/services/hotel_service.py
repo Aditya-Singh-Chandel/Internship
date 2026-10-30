@@ -135,6 +135,16 @@ def update_hotel(db: Session, item_id: uuid.UUID, update_data):
         raise HTTPException(status_code=404, detail="This Hotel is not present.")
 
     update_data_dict = update_data.model_dump(exclude_unset=True)
+    if "owner_id" in update_data_dict and update_data_dict["owner_id"] is not None:
+        from app.models.user import User
+        from app.core.roles import UserRole
+        owner_user = db.query(User).filter(User.id == update_data_dict["owner_id"], User.deleted_at.is_(None)).first()
+        if not owner_user:
+            raise HTTPException(status_code=404, detail="The specified owner does not exist.")
+        if owner_user.role and owner_user.role.name.lower() != UserRole.OWNER.value:
+            raise HTTPException(status_code=400, detail="The assigned user must have the 'owner' role.")
+        owner_user.hotel_id = None
+
     for key, value in update_data_dict.items():
         if isinstance(value, str):
             value = validate_string(key, value)

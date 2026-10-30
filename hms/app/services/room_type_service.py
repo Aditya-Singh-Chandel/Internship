@@ -1,6 +1,6 @@
 from app.utils.validation_utils import validate_string
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 import math
 from fastapi import HTTPException
 import uuid
@@ -10,6 +10,8 @@ from app.models.room_type import RoomType
 from app.models.room import Room
 from app.models.booking import Booking
 from app.models.booking_item import BookingItem
+from app.models.guest import Guest
+from app.models.booking_guest import BookingGuest
 from app.models.amenity import Amenity
 from app.models.media import Media
 from app.models.hotel import Hotel
@@ -32,6 +34,9 @@ def get_room_types(db: Session, query_params: dict | None = None):
 
     checkin_date = query_params.get("checkin_date")
     checkout_date = query_params.get("checkout_date")
+    only_available = query_params.get("only_available", False)
+    if isinstance(only_available, str):
+        only_available = only_available.lower() in ("true", "1", "yes")
 
     if (checkin_date and not checkout_date) or (checkout_date and not checkin_date):
         raise HTTPException(
@@ -46,17 +51,17 @@ def get_room_types(db: Session, query_params: dict | None = None):
             raise HTTPException(status_code=400, detail="checkin_date cannot be in the past.")
 
     requested_rooms = int(query_params.get("rooms_count", 1) or 1)
-    parsed = extract_filters(query_params, extra_reserved={"checkin_date", "checkout_date", "rooms_count"})
+    parsed = extract_filters(query_params, extra_reserved={"checkin_date", "checkout_date", "rooms_count", "only_available"})
 
     query = db.query(RoomType)
     query = filter_active(query, RoomType, query_params)
     query = apply_filters(query, RoomType, parsed["filters"])
     query = apply_sorting(query, RoomType, parsed["sort_by"], parsed["sort_order"])
 
-    # Filter room types by real-time available physical capacity considering rooms_count
+    # Calculate real-time available physical capacity considering rooms_count and booked inventory
     if checkin_date and checkout_date:
         items = query.all()
-        available_items = []
+        result_items = []
         for rt in items:
             total_rooms = db.query(Room).filter(
                 Room.room_type_id == rt.id,
@@ -75,21 +80,35 @@ def get_room_types(db: Session, query_params: dict | None = None):
                 Booking.checkout_date > checkin_date
             ).scalar() or 0
 
-            if total_rooms - booked_rooms >= requested_rooms:
-                available_items.append(rt)
+            avail = max(0, total_rooms - booked_rooms)
+            rt.total_rooms_count = total_rooms
+            rt.available_rooms_count = avail
+            rt.is_sold_out = (avail == 0)
+
+            if only_available:
+                if avail >= requested_rooms:
+                    result_items.append(rt)
+            else:
+                result_items.append(rt)
 
         page = max(1, int(query_params.get("page") or 1))
         limit = max(1, int(query_params.get("limit") or 10))
-        total = len(available_items)
+        total = len(result_items)
         total_pages = math.ceil(total / limit) if total > 0 else 0
-        paged_items = available_items[(page - 1) * limit : page * limit]
+        paged_items = result_items[(page - 1) * limit : page * limit]
 
         return {
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": total_pages,
-            "room_types": paged_items,
+            "success": True,
+            "message": "Room types retrieved successfully",
+            "data": paged_items,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            }
         }
 
     return paginate_and_format(query, "room_types", query_params)

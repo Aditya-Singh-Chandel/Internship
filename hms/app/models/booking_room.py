@@ -23,3 +23,16 @@ class BookingRoom(db_class):
     booking_item = relationship("BookingItem", back_populates="booking_rooms")
     room = relationship("Room")
     guest = relationship("Guest")
+
+    @property
+    def room_number(self):
+        return self.room.room_number if self.room else None
+
+    @property
+    def floor(self):
+        return self.room.floor if self.room else None
+
+    @property
+    def guest_name(self):
+        return self.guest.name if self.guest else None
+

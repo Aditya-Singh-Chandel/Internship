@@ -3,7 +3,7 @@ from app.utils.query_utils import extract_filters, apply_filters, apply_sorting,
 from datetime import datetime, timezone
 from fastapi import HTTPException
 import uuid
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from app.models.room import Room
 from app.models.room_type import RoomType
@@ -80,7 +80,7 @@ def get_rooms(db: Session, query_params: dict | None = None):
     hotel_id = query_params.pop("hotel_id", None)
     parsed = extract_filters(query_params)
 
-    query = db.query(Room)
+    query = db.query(Room).options(joinedload(Room.room_type))
     if hotel_id:
         query = query.join(RoomType, Room.room_type_id == RoomType.id).filter(RoomType.hotel_id == hotel_id)
 
@@ -91,7 +91,7 @@ def get_rooms(db: Session, query_params: dict | None = None):
     return paginate_and_format(query, "rooms", query_params)
 
 def get_room_by_id(db: Session, item_id: uuid.UUID, include_deleted: bool = False):
-    query = db.query(Room).filter(Room.id == item_id)
+    query = db.query(Room).options(joinedload(Room.room_type)).filter(Room.id == item_id)
     if not include_deleted:
         query = query.filter(Room.deleted_at.is_(None))
     item = query.first()

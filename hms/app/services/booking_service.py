@@ -14,6 +14,7 @@ from app.models.booking import Booking
 from app.models.booking_item import BookingItem
 from app.models.hotel import Hotel
 from app.models.room_type import RoomType
+from app.models.room import Room
 from app.models.guest import Guest
 from app.models.booking_room import BookingRoom
 from app.models.booking_guest import BookingGuest
@@ -130,12 +131,20 @@ def get_bookings(db: Session, query_params: dict | None = None):
     if hasattr(rooms_count_op, "value"): rooms_count_op = rooms_count_op.value
     rooms_count_op = rooms_count_op or "eq"
 
-    parsed = extract_filters(query_params, extra_reserved={"month", "year", "month_op", "year_op", "rooms_count", "rooms_count_op"})
+    parsed = extract_filters(query_params, extra_reserved={"month", "year", "month_op", "year_op", "rooms_count", "rooms_count_op", "_guest_ids", "my_bookings"})
 
     query = db.query(Booking).options(
-        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms)
+        joinedload(Booking.guest),
+        joinedload(Booking.hotel),
+        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms).joinedload(BookingRoom.room),
+        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms).joinedload(BookingRoom.guest),
+        joinedload(Booking.booking_items).joinedload(BookingItem.room_type),
+        joinedload(Booking.reviews)
     )
     query = filter_active(query, Booking, query_params)
+
+    if "_guest_ids" in query_params:
+        query = query.filter(Booking.guest_id.in_(query_params["_guest_ids"]))
 
     # Apply month/year filter on checkin_date
     if month and year:
@@ -170,7 +179,12 @@ def get_bookings(db: Session, query_params: dict | None = None):
 
 def get_booking_by_id(db: Session, item_id: uuid.UUID, include_deleted: bool = False):
     query = db.query(Booking).options(
-        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms)
+        joinedload(Booking.guest),
+        joinedload(Booking.hotel),
+        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms).joinedload(BookingRoom.room),
+        joinedload(Booking.booking_items).joinedload(BookingItem.booking_rooms).joinedload(BookingRoom.guest),
+        joinedload(Booking.booking_items).joinedload(BookingItem.room_type),
+        joinedload(Booking.reviews)
     ).filter(Booking.id == item_id)
     if not include_deleted:
         query = query.filter(Booking.deleted_at.is_(None))
@@ -261,13 +275,34 @@ def update_booking(db: Session, item_id: uuid.UUID, update_data: BookingUpdate):
                 for bi in item.booking_items if bi.deleted_at is None
             )
 
-    # If status cancelled, cancel all active allocated rooms
-    if update_data_dict.get("status") == "cancelled":
+    # Automatically synchronize physical room inventory status with stay status
+    target_status = update_data_dict.get("status")
+    if target_status == "in_house":
         for bi in item.booking_items:
             if bi.deleted_at is None:
                 for r in bi.booking_rooms:
-                    if r.deleted_at is None and r.status not in ["cancelled", "checked_out"]:
+                    if r.deleted_at is None and r.room_id is not None:
+                        r.status = "checked_in"
+                        r.checked_in_at = datetime.now(timezone.utc)
+                        db.query(Room).filter(Room.id == r.room_id).update({Room.status: "occupied"}, synchronize_session=False)
+
+    elif target_status == "completed":
+        for bi in item.booking_items:
+            if bi.deleted_at is None:
+                for r in bi.booking_rooms:
+                    if r.deleted_at is None and r.room_id is not None:
+                        r.status = "checked_out"
+                        r.checked_out_at = datetime.now(timezone.utc)
+                        db.query(Room).filter(Room.id == r.room_id).update({Room.status: "available"}, synchronize_session=False)
+
+    elif target_status == "cancelled":
+        for bi in item.booking_items:
+            if bi.deleted_at is None:
+                for r in bi.booking_rooms:
+                    if r.deleted_at is None:
                         r.status = "cancelled"
+                        if r.room_id is not None:
+                            db.query(Room).filter(Room.id == r.room_id).update({Room.status: "available"}, synchronize_session=False)
 
     db.commit()
     db.refresh(item)
@@ -377,6 +412,8 @@ def cancel_booking(db: Session, item_id: uuid.UUID, reason: str | None = None):
             for r in b_item.booking_rooms:
                 if r.deleted_at is None and r.status not in ["cancelled", "checked_out"]:
                     r.status = "cancelled"
+                    if r.room_id is not None:
+                        db.query(Room).filter(Room.id == r.room_id).update({Room.status: "available"}, synchronize_session=False)
 
     db.commit()
     db.refresh(item)
