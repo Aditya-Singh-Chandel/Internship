@@ -10,8 +10,6 @@ from app.models.room_type import RoomType
 from app.models.room import Room
 from app.models.booking import Booking
 from app.models.booking_item import BookingItem
-from app.models.guest import Guest
-from app.models.booking_guest import BookingGuest
 from app.models.amenity import Amenity
 from app.models.media import Media
 from app.models.hotel import Hotel
@@ -27,6 +25,32 @@ def create_room_type(db: Session, room_type: RoomTypeCreate):
     db.commit()
     db.refresh(db_room_type)
     return db_room_type
+
+def room_type_availability(db: Session, room_type_id: uuid.UUID, checkin_date: date, checkout_date: date) -> tuple[int, int]:
+    """
+    (total rooms, rooms still free) of one room type for the stay [checkin_date, checkout_date).
+    Rooms under maintenance do not count; bookings that overlap the stay and are not cancelled/completed use rooms up.
+    The single source of truth for availability: the room-types endpoint and the AI concierge both call it.
+    """
+    total_rooms = db.query(Room).filter(
+        Room.room_type_id == room_type_id,
+        Room.deleted_at.is_(None),
+        Room.status != "maintenance"
+    ).count()
+
+    booked_rooms = db.query(func.coalesce(func.sum(BookingItem.quantity), 0)).join(
+        Booking, Booking.id == BookingItem.booking_id
+    ).filter(
+        BookingItem.room_type_id == room_type_id,
+        Booking.deleted_at.is_(None),
+        Booking.status.notin_(["cancelled", "completed"]),
+        BookingItem.deleted_at.is_(None),
+        Booking.checkin_date < checkout_date,
+        Booking.checkout_date > checkin_date
+    ).scalar() or 0
+
+    return total_rooms, max(0, total_rooms - booked_rooms)
+
 
 def get_room_types(db: Session, query_params: dict | None = None):
     if query_params is None:
@@ -63,24 +87,7 @@ def get_room_types(db: Session, query_params: dict | None = None):
         items = query.all()
         result_items = []
         for rt in items:
-            total_rooms = db.query(Room).filter(
-                Room.room_type_id == rt.id,
-                Room.deleted_at.is_(None),
-                Room.status != "maintenance"
-            ).count()
-
-            booked_rooms = db.query(func.coalesce(func.sum(BookingItem.quantity), 0)).join(
-                Booking, Booking.id == BookingItem.booking_id
-            ).filter(
-                BookingItem.room_type_id == rt.id,
-                Booking.deleted_at.is_(None),
-                Booking.status.notin_(["cancelled", "completed"]),
-                BookingItem.deleted_at.is_(None),
-                Booking.checkin_date < checkout_date,
-                Booking.checkout_date > checkin_date
-            ).scalar() or 0
-
-            avail = max(0, total_rooms - booked_rooms)
+            total_rooms, avail = room_type_availability(db, rt.id, checkin_date, checkout_date)
             rt.total_rooms_count = total_rooms
             rt.available_rooms_count = avail
             rt.is_sold_out = (avail == 0)

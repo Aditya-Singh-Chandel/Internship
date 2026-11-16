@@ -1,0 +1,52 @@
+{"id": "alp-ski-valet", "hotel": "alpine", "question": "What time does the ski valet open?", "relevant": [{"hotel": "alpine", "contains": "operates daily from 8:00 AM to 6:00 PM"}], "expect": ["8"]}
+{"id": "alp-rental", "hotel": "alpine", "question": "How much does it cost to rent skis?", "relevant": [{"hotel": "alpine", "contains": "Standard carving package"}], "expect": ["$65"]}
+{"id": "alp-parking", "hotel": "alpine", "question": "How much is parking?", "relevant": [{"hotel": "alpine", "contains": "Heated underground valet parking"}], "expect": ["$50"]}
+{"id": "alp-pets", "hotel": "alpine", "question": "Can I bring my dog?", "relevant": [{"hotel": "alpine", "contains": "Pets are not allowed at Alpine Peak"}], "expect": ["not"]}
+{"id": "alp-checkin", "hotel": "alpine", "question": "What time is check-in?", "relevant": [{"hotel": "alpine", "contains": "Check-in is from 4:00 PM"}], "expect": ["4"]}
+{"id": "alp-quiet", "hotel": "alpine", "question": "When are quiet hours?", "relevant": [{"hotel": "alpine", "contains": "Quiet hours are from 9:30 PM"}], "expect": ["9:30"]}
+{"id": "alp-cancel-30h", "hotel": "alpine", "question": "What refund do I get if I cancel 30 hours before arrival?", "relevant": [{"hotel": "alpine", "contains": "between 24 and 72 hours"}], "expect": ["50%"]}
+{"id": "bis-trailer", "hotel": "biscayne", "question": "Can I park my boat trailer?", "relevant": [{"hotel": "biscayne", "contains": "boat trailers costs $35"}], "expect": ["$35"]}
+{"id": "bis-slip", "hotel": "biscayne", "question": "How much is a slip for my yacht per night?", "relevant": [{"hotel": "biscayne", "contains": "$6 per foot per night"}], "expect": ["$6"]}
+{"id": "bis-helicopter", "hotel": "biscayne", "question": "Can I fly in by helicopter from the airport?", "relevant": [{"hotel": "biscayne", "contains": "Helicopter transfers between Miami International"}], "expect": ["1,850"]}
+{"id": "bis-cancel-40h", "hotel": "biscayne", "question": "If I cancel 40 hours before check-in, do I get money back?", "relevant": [{"hotel": "biscayne", "contains": "between 36 and 72 hours"}], "expect": ["50%"]}
+{"id": "par-late-checkout", "hotel": "paris", "question": "Is late checkout free?", "relevant": [{"hotel": "paris", "contains": "Late check-out until 3:00 PM is complimentary"}], "expect": ["3"]}
+{"id": "par-babysitting", "hotel": "paris", "question": "Can you arrange a babysitter?", "relevant": [{"hotel": "paris", "contains": "babysitting costs $28 per hour"}], "expect": ["28"]}
+{"id": "par-pool", "hotel": "paris", "question": "Do you have a swimming pool?", "relevant": [{"hotel": "paris", "contains": "The hotel has no swimming pool"}], "expect": ["Grotto"]}
+{"id": "par-airport", "hotel": "paris", "question": "How much is a transfer from Charles de Gaulle?", "relevant": [{"hotel": "paris", "contains": "Charles de Gaulle for $175"}], "expect": ["175"]}
+{"id": "par-pets", "hotel": "paris", "question": "Is there a fee for bringing my cat?", "relevant": [{"hotel": "paris", "contains": "Dogs and cats up to 25 lbs are welcome at no extra charge"}], "expect": ["25"]}
+{"id": "san-cancel", "hotel": "santorini", "question": "What is the cancellation policy?", "relevant": [{"hotel": "santorini", "contains": "at least 168 hours (7 days)"}], "expect": ["7 days"]}
+{"id": "san-kids", "hotel": "santorini", "question": "Can we bring our 8-year-old?", "relevant": [{"hotel": "santorini", "contains": "children aged 12 and over are welcome"}], "expect": ["12"]}
+{"id": "san-transfer", "hotel": "santorini", "question": "How do I get from the port to the hotel?", "relevant": [{"hotel": "santorini", "contains": "Athinios port (40 minutes, $60 one way)"}], "expect": ["$60"]}
+{"id": "san-parking", "hotel": "santorini", "question": "Where do I park the rental car?", "relevant": [{"hotel": "santorini", "contains": "Oia main car park"}], "expect": ["400"]}
+{"id": "mir-room-service", "hotel": "mirage", "question": "Is there a service charge on room service?", "relevant": [{"hotel": "mirage", "contains": "20% service charge applies to all in-suite orders"}, {"hotel": "mirage", "contains": "a 20% service charge applies"}], "expect": ["20%"]}
+{"id": "mir-pool-temp", "hotel": "mirage", "question": "How warm is the infinity pool?", "relevant": [{"hotel": "mirage", "contains": "heated to 82°F"}], "expect": ["82"]}
+{"id": "mir-cabana-price", "hotel": "mirage", "question": "How much does a beach cabana cost on a Saturday?", "relevant": [{"hotel": "mirage", "contains": "$350 on weekends"}], "expect": ["$350"]}
+{"id": "mir-cabana-cancel", "hotel": "mirage", "question": "What happens if I cancel my cabana at the last minute?", "relevant": [{"hotel": "mirage", "contains": "at least 12 hours before your reservation"}], "expect": ["12 hours", "50%"]}
+{"id": "mir-pets", "hotel": "mirage", "question": "Can my dog stay with me in a Deluxe Coral King Suite?", "relevant": [{"hotel": "mirage", "contains": "Tropical Garden Villas only"}], "expect": ["Villa"]}
+{"id": "mir-burger", "hotel": "mirage", "question": "How much is the truffle burger from in-suite dining?", "relevant": [{"hotel": "mirage", "contains": "Midnight truffle burger"}], "expect": ["$34"]}
+{"id": "mir-penthouse-checkout", "hotel": "mirage", "question": "How late can Presidential Penthouse guests check out?", "relevant": [{"hotel": "mirage", "contains": "check out as late as 4:00 PM"}], "expect": ["4"]}
+{"id": "man-parking", "hotel": "manhattan", "question": "How much is valet parking?", "relevant": [{"hotel": "manhattan", "contains": "Valet parking costs $85"}], "expect": ["$85"]}
+{"id": "man-pool", "hotel": "manhattan", "question": "Is there a pool?", "relevant": [{"hotel": "manhattan", "contains": "indoor saltwater lap pool"}], "expect": ["38"]}
+{"id": "man-jfk", "hotel": "manhattan", "question": "What does a car from JFK cost?", "relevant": [{"hotel": "manhattan", "contains": "JFK costs $195"}], "expect": ["$195"]}
+{"id": "may-tea", "hotel": "mayfair", "question": "How much is afternoon tea?", "relevant": [{"hotel": "mayfair", "contains": "Afternoon tea is served daily from 2:00 PM to 6:00 PM ($85"}], "expect": ["$85"]}
+{"id": "may-dress", "hotel": "mayfair", "question": "Is there a dress code in the bar?", "relevant": [{"hotel": "mayfair", "contains": "Smart casual dress is requested after 6:00 PM"}], "expect": ["casual"]}
+{"id": "may-parking", "hotel": "mayfair", "question": "Can I park at the hotel?", "relevant": [{"hotel": "mayfair", "contains": "There is no on-site parking"}], "expect": ["$80"]}
+{"id": "pal-valet", "hotel": "palms", "question": "How much is valet parking?", "relevant": [{"hotel": "palms", "contains": "Valet parking costs $38"}], "expect": ["$38"]}
+{"id": "pal-music", "hotel": "palms", "question": "When does the music at the pool stop?", "relevant": [{"hotel": "palms", "contains": "when outdoor music ends"}], "expect": ["8"]}
+{"id": "pal-paddle", "hotel": "palms", "question": "Can I rent a paddleboard?", "relevant": [{"hotel": "palms", "contains": "paddleboards ($40 per hour)"}], "expect": ["$40"]}
+{"id": "pal-kids", "hotel": "palms", "question": "How many kids stay free in the cabana suites?", "relevant": [{"hotel": "palms", "contains": "Two children under 14 stay free"}], "expect": ["14"]}
+{"id": "tok-tattoo", "hotel": "tokyo", "question": "Can I use the onsen if I have tattoos?", "relevant": [{"hotel": "tokyo", "contains": "Guests with tattoos are welcome"}], "expect": ["cover"]}
+{"id": "tok-family-onsen", "hotel": "tokyo", "question": "How much is a private family onsen?", "relevant": [{"hotel": "tokyo", "contains": "private family onsen can be reserved for 60 minutes for $35"}], "expect": ["$35"]}
+{"id": "tok-onsen-hours", "hotel": "tokyo", "question": "What are the onsen opening hours and which floor?", "relevant": [{"hotel": "tokyo", "contains": "52nd floor"}], "expect": ["52", "6:00"]}
+{"id": "tok-narita", "hotel": "tokyo", "question": "How do I get there from Narita airport?", "relevant": [{"hotel": "tokyo", "contains": "Narita Express to Shinjuku"}], "expect": ["Narita Express"]}
+{"id": "tok-cancel", "hotel": "tokyo", "question": "Until when can I cancel for free?", "relevant": [{"hotel": "tokyo", "contains": "at least 24 hours before check-in receive a full refund"}], "expect": ["24"]}
+{"id": "ubu-cancel", "hotel": "ubud", "question": "What is your cancellation policy?", "relevant": [{"hotel": "ubud", "contains": "at least 96 hours (4 days)"}], "expect": ["96"]}
+{"id": "ubu-yoga", "hotel": "ubud", "question": "Are yoga classes free?", "relevant": [{"hotel": "ubud", "contains": "free hatha yoga at 7:00 AM"}, {"hotel": "ubud", "contains": "Yoga classes are free at 7:00 AM"}], "expect": ["7"]}
+{"id": "ubu-transfer", "hotel": "ubud", "question": "How long is the drive from the airport and what does the transfer cost?", "relevant": [{"hotel": "ubud", "contains": "The drive from Bali's Ngurah Rai airport"}], "expect": ["$40"]}
+{"id": "ubu-floating", "hotel": "ubud", "question": "Can we have a floating breakfast?", "relevant": [{"hotel": "ubud", "contains": "floating breakfast in your villa pool costs $35"}], "expect": ["$35"]}
+{"id": "any-helipad", "hotel": null, "question": "Which of your hotels has a helipad?", "relevant": [{"hotel": "biscayne", "contains": "Helipad"}], "expect": ["Biscayne"]}
+{"id": "any-kaiseki", "hotel": null, "question": "Where can I get a Japanese kaiseki breakfast?", "relevant": [{"hotel": "tokyo", "contains": "kaiseki"}], "expect": ["Tokyo"]}
+{"id": "any-whisky", "hotel": null, "question": "Which hotel has a whiskey bar?", "relevant": [{"hotel": "alpine", "contains": "Whiskey Bar"}], "expect": ["Alpine"]}
+{"id": "any-tailor", "hotel": null, "question": "Which hotel can arrange a Savile Row suit fitting?", "relevant": [{"hotel": "mayfair", "contains": "Savile Row tailoring"}], "expect": ["Mayfair"]}
+{"id": "any-santorini-cancel", "hotel": null, "question": "What's the cancellation policy at Santorini Cliffside Suites?", "relevant": [{"hotel": "santorini", "contains": "168 hours"}], "expect": ["7 days"]}
+{"id": "any-ubud-macaques", "hotel": null, "question": "Are there monkeys at the Ubud resort?", "relevant": [{"hotel": "ubud", "contains": "macaques"}], "expect": []}

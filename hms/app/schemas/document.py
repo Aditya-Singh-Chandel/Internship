@@ -1,13 +1,14 @@
+from typing import Literal
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class DocumentCreateText(BaseModel):
     title: str = Field(..., min_length=2, max_length=255, description="Document title")
     content: str = Field(..., min_length=10, description="Raw text, FAQ, or policy content")
     category: str = Field(default="general", max_length=50, description="policies, catalog, menu, faq, events, general")
-    access_level: str = Field(default="public", description="public, staff_only, resident_only")
+    access_level: Literal["public", "staff_only", "resident_only"] = Field(default="public", description="public, staff_only, resident_only")
 
 
 class DocumentResponse(BaseModel):
@@ -49,3 +50,4 @@ class DocumentChunkResult(BaseModel):
     content: str
     metadata: Dict[str, Any] = {}
     similarity_score: float
+    rerank_score: Optional[float] = None  # cross-encoder relevance 0..1; absent when re-ranking is off

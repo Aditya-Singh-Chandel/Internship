@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, status, Form, Query
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_staff, get_current_user
 from app.models.user import User
-from app.utils.scoping_utils import get_or_create_guest_for_user
+from app.utils.scoping_utils import get_or_create_guest_for_user, staff_hotel_scope, ensure_guest_in_scope
 from app.schemas import guest as guest_schema
 from app.schemas.common import ActionResponse, SortOrder, StringFilterOperator, NumericFilterOperator
 from app.services import guest_service
@@ -65,40 +65,54 @@ def read_guests(
     include_deleted: bool = Query(default=False, description="Include soft-deleted records in results"),
     sort_by: GuestSortBy | None = Query(default=None),
     sort_order: SortOrder | None = Query(default="asc"),
+    current_user: User = Depends(require_staff),
     db: Session = Depends(get_db)
 ):
     """
-    List guests with advanced filtering and sorting. (Staff only)
+    List guests with advanced filtering and sorting. (Staff only: guests with a booking at a hotel you manage)
     """
-    query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request")}
+    query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request", "current_user")}
+    scope = staff_hotel_scope(db, current_user)
+    if scope is not None:
+        query_params["_hotel_ids"] = scope
     return guest_service.get_guests(db=db, query_params=query_params)
 
 @router.get("/{id}", response_model=guest_schema.GuestItemResponse, dependencies=[Depends(require_staff)])
 def guest_by_id(
     id: UUID,
     include_deleted: bool = Query(default=False, description="Include if soft-deleted"),
+    current_user: User = Depends(require_staff),
     db: Session = Depends(get_db)
 ):
     """Staff only: View guest by ID."""
+    ensure_guest_in_scope(db, current_user, id)
     item = guest_service.get_guest_by_id(db, id, include_deleted=include_deleted)
     return {"success": True, "message": "Guest retrieved successfully", "data": item}
 
 @router.put("/{id}", response_model=guest_schema.GuestItemResponse, dependencies=[Depends(require_staff)])
-def update_guest(id: UUID, update_data: Annotated[guest_schema.GuestUpdate, Form()], db: Session = Depends(get_db)):
+def update_guest(
+    id: UUID,
+    update_data: Annotated[guest_schema.GuestUpdate, Form()],
+    current_user: User = Depends(require_staff),
+    db: Session = Depends(get_db),
+):
     """Staff only: Update guest record."""
+    ensure_guest_in_scope(db, current_user, id)
     item = guest_service.update_guest(db, id, update_data)
     return {"success": True, "message": "Guest updated successfully", "data": item}
 
 @router.delete("/{id}", response_model=ActionResponse, dependencies=[Depends(require_staff)])
-def delete_guest(id: UUID, db: Session = Depends(get_db)):
+def delete_guest(id: UUID, current_user: User = Depends(require_staff), db: Session = Depends(get_db)):
     """Staff only: Delete guest record."""
+    ensure_guest_in_scope(db, current_user, id)
     item = guest_service.delete_guest(db, id)
     return {"success": True, "message": "Guest deleted successfully", "data": {"id": item.id}}
 
 @router.post("/{id}/restore", response_model=guest_schema.GuestItemResponse, dependencies=[Depends(require_staff)])
-def restore_guest(id: UUID, db: Session = Depends(get_db)):
+def restore_guest(id: UUID, current_user: User = Depends(require_staff), db: Session = Depends(get_db)):
     """
     Restore a soft-deleted guest and their reviews. (Staff only)
     """
+    ensure_guest_in_scope(db, current_user, id)
     item = guest_service.restore_guest(db, id)
     return {"success": True, "message": "Guest restored successfully", "data": item}

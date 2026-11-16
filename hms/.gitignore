@@ -5,7 +5,30 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
 
 # Virtual environments
 .venv
+
+# Secrets: only .env.example is committed
 .env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Editors, OS, logs
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Evaluation output (regenerated on every run)
+evals/results/
+
+# Tool caches
+.deepeval/
+.ruff_cache/

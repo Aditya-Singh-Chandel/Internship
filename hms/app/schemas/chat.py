@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class ChatMessageRequest(BaseModel):
-    message: str = Field(..., min_length=1, description="User question or statement")
+    message: str = Field(..., min_length=1, max_length=2000, description="User question or statement")
     session_id: Optional[uuid.UUID] = Field(default=None, description="Existing chat session ID to maintain conversation history")
     hotel_id: Optional[uuid.UUID] = Field(default=None, description="Optional hotel scope for policy or amenity queries")
 

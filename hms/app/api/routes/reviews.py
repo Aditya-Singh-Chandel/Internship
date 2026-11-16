@@ -5,12 +5,10 @@ from fastapi import APIRouter, Depends, status, Form, Query, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db, get_current_user, require_manager
 from app.models.user import User
-from app.models.guest import Guest
 from app.models.booking import Booking
 from app.models.booking_item import BookingItem
 from app.models.booking_room import BookingRoom
 from app.models.booking_guest import BookingGuest
-from app.core.roles import UserRole
 from app.utils.scoping_utils import verify_review_access, get_or_create_guest_for_user, get_user_guest_ids
 from app.schemas import review as review_schema
 from app.schemas.common import ActionResponse, SortOrder, NumericFilterOperator

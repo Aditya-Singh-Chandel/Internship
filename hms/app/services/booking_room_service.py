@@ -8,13 +8,15 @@ from app.models.booking_room import BookingRoom
 from app.models.booking_item import BookingItem
 from app.models.booking import Booking
 from app.models.guest import Guest
+from app.utils.scoping_utils import bookings_in_scope
 from app.models.room import Room
 from app.models.booking_guest import BookingGuest
 from app.schemas.booking_room import BookingRoomCreate, BookingRoomUpdate, BulkRoomAssignmentRequest
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, paginate_and_format
 from app.utils.validation_utils import (
     validate_room_belongs_to_room_type,
-    validate_assigned_rooms_not_overlapping
+    validate_assigned_rooms_not_overlapping,
+    validate_checkin_window,
 )
 
 def create_booking_room(db: Session, booking_room: BookingRoomCreate):
@@ -248,10 +250,14 @@ def get_booking_rooms(db: Session, query_params: dict | None = None):
 
     booking_id = query_params.get("booking_id")
     room_type_id = query_params.get("room_type_id")
+    hotel_ids = query_params.pop("_hotel_ids", None)
 
     parsed = extract_filters(query_params, extra_reserved={"booking_id", "room_type_id"})
     query = db.query(BookingRoom)
     query = filter_active(query, BookingRoom, query_params)
+    if hotel_ids is not None:
+        query = query.filter(BookingRoom.booking_item_id.in_(
+            db.query(BookingItem.id).filter(BookingItem.booking_id.in_(bookings_in_scope(hotel_ids)))))
 
     if booking_id:
         query = query.join(BookingItem, BookingRoom.booking_item_id == BookingItem.id).filter(BookingItem.booking_id == booking_id)
@@ -322,6 +328,11 @@ def check_in_booking_room(db: Session, item_id: uuid.UUID):
         raise HTTPException(status_code=400, detail="This room is already checked in.")
     if item.status == "checked_out":
         raise HTTPException(status_code=400, detail="This room has already completed its stay.")
+    if item.status == "cancelled":
+        raise HTTPException(status_code=400, detail="This room reservation is cancelled and cannot be checked in.")
+    if not item.room_id:
+        raise HTTPException(status_code=400, detail="Assign a physical room before check-in.")
+    validate_checkin_window(item.checkin_date, item.checkout_date)
 
     now = datetime.now(timezone.utc)
     item.status = "checked_in"

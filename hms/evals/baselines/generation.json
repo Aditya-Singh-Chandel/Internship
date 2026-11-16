@@ -1,0 +1,59 @@
+{
+  "label": "final",
+  "summary": {
+    "n": 72,
+    "passed": 72,
+    "errors": 0,
+    "pass_rate": 1.0,
+    "by_category": {
+      "booking": {
+        "n": 8,
+        "pass_rate": 1.0
+      },
+      "discovery": {
+        "n": 8,
+        "pass_rate": 1.0
+      },
+      "fake_entity": {
+        "n": 4,
+        "pass_rate": 1.0
+      },
+      "faq": {
+        "n": 10,
+        "pass_rate": 1.0
+      },
+      "followup": {
+        "n": 11,
+        "pass_rate": 1.0
+      },
+      "off_topic": {
+        "n": 2,
+        "pass_rate": 1.0
+      },
+      "opinion": {
+        "n": 2,
+        "pass_rate": 1.0
+      },
+      "policy": {
+        "n": 13,
+        "pass_rate": 1.0
+      },
+      "pricing": {
+        "n": 6,
+        "pass_rate": 1.0
+      },
+      "refund": {
+        "n": 3,
+        "pass_rate": 1.0
+      },
+      "security": {
+        "n": 5,
+        "pass_rate": 1.0
+      }
+    },
+    "avg_tokens": 2408,
+    "latency_p50_s": 2.463,
+    "latency_p95_s": 3.354
+  },
+  "failing_ids": []
+}

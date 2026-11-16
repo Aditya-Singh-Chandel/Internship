@@ -2,6 +2,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_staff
+from app.models.user import User
+from app.utils.scoping_utils import staff_hotel_scope, ensure_booking_in_scope
 from app.schemas import booking_item as bi_schema
 from app.services import booking_item_service
 
@@ -15,16 +17,22 @@ def read_booking_items(
     page: int = Query(default=1, ge=1, description="Page number for pagination"),
     limit: int = Query(default=10, ge=1, le=100, description="Items per page for pagination"),
     include_deleted: bool = Query(default=False, description="Include soft-deleted records in results"),
+    current_user: User = Depends(require_staff),
     db: Session = Depends(get_db)
 ):
-    query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request")}
+    query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request", "current_user")}
+    scope = staff_hotel_scope(db, current_user)
+    if scope is not None:
+        query_params["_hotel_ids"] = scope
     return booking_item_service.get_booking_items(db, query_params)
 
 @router.get("/{id}", response_model=bi_schema.BookingItemItemResponse)
 def get_booking_item_by_id(
     id: UUID,
     include_deleted: bool = Query(default=False, description="Include if soft-deleted"),
+    current_user: User = Depends(require_staff),
     db: Session = Depends(get_db)
 ):
     item = booking_item_service.get_booking_item_by_id(db, id, include_deleted=include_deleted)
+    ensure_booking_in_scope(db, current_user, item.booking_id)
     return {"success": True, "message": "Booking item retrieved successfully", "data": item}

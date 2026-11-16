@@ -26,25 +26,12 @@ def register_user(db: Session, user_data: UserRegister) -> User:
     if existing:
         raise HTTPException(status_code=400, detail="A user with this email already exists.")
 
-    role = None
-    if user_data.role_id:
-        role = db.query(Role).filter(Role.id == user_data.role_id, Role.deleted_at.is_(None)).first()
-        if not role:
-            raise HTTPException(status_code=404, detail="The specified role_id does not exist.")
-        if role.name.lower() in [UserRole.ADMIN.value, UserRole.MANAGER.value, UserRole.RECEPTIONIST.value]:
-            raise HTTPException(status_code=403, detail="Self-registration for staff roles (admin, manager, receptionist) is not permitted. Staff must be created by a Hotel Owner or Administrator.")
-    elif getattr(user_data, "role_name", None):
-        clean_role_name = user_data.role_name.strip().lower()
-        if clean_role_name in [UserRole.ADMIN.value, UserRole.MANAGER.value, UserRole.RECEPTIONIST.value]:
-            raise HTTPException(status_code=403, detail="Self-registration for staff roles (admin, manager, receptionist) is not permitted. Staff must be created by a Hotel Owner or Administrator.")
-        role = get_or_create_role(db, clean_role_name)
-    else:
-        role = get_or_create_role(db, UserRole.CUSTOMER.value)
+    # Public sign-up always creates a customer; staff and owners are created by an admin or owner
+    role = get_or_create_role(db, UserRole.CUSTOMER.value)
 
     hashed_pwd = get_password_hash(user_data.password)
     db_user = User(
         role_id=role.id,
-        hotel_id=getattr(user_data, "hotel_id", None),
         name=user_data.name.strip(),
         email=user_data.email.strip().lower(),
         password_hash=hashed_pwd,

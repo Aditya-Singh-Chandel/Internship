@@ -25,6 +25,11 @@ class BookingRoom(db_class):
     guest = relationship("Guest")
 
     @property
+    def booking_id(self):
+        # Read-only: the booking is reached through the line item (there is no booking_id column)
+        return self.booking_item.booking_id if self.booking_item else None
+
+    @property
     def room_number(self):
         return self.room.room_number if self.room else None
 

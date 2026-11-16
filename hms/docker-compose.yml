@@ -15,8 +15,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: hms
     ports:
-      # Maps port 5432 on your Windows PC to port 5432 inside the container
-      - "5432:5432"
+      # Host port 5433 -> container 5432 (5432 is often taken by a native Postgres); reachable only from this machine
+      - "127.0.0.1:5433:5432"
     volumes:
       # Named volume: Persists all database data on your disk even if container is removed
       - postgres_data:/var/lib/postgresql/data
@@ -39,22 +39,60 @@ services:
     ports:
       # Maps port 8000 on your Windows PC to port 8000 inside the container
       - "8000:8000"
+    # Secrets (JWT_SECRET_KEY, GEMINI_API_KEY, ...) come from your local .env file
+    env_file: .env
     environment:
-      # Notice the host is 'db' (the service name of the Postgres container above)
-      # Docker Compose automatically connects them on a private shared network
+      # Overrides .env: inside Docker the host is 'db' (the service name of the Postgres container above)
       DATABASE_URL: postgresql://postgres:postgres@db:5432/hms
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-70f636ea7848576aa60346195014824346a044fcaf70a3ee97a020cfa27a45b9}
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      # Tracing from inside the container: .env's localhost address would point at the container itself, so it is
+      # replaced here. Leave PHOENIX_DOCKER_ENDPOINT unset to keep tracing off in Docker, or set it to
+      # http://phoenix:6006 (after starting the phoenix service) to turn it on.
+      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_DOCKER_ENDPOINT:-}
+    volumes:
+      # Keeps the downloaded embedding model between container restarts
+      - fastembed_cache:/tmp/fastembed_cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on:
       db:
         # Ensures FastAPI only starts AFTER Postgres is fully healthy and accepting connections
         condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # Service 3 (optional): Arize Phoenix, a trace viewer for the AI concierge
+  # Start with:  docker compose --profile observability up -d phoenix
+  # Then set PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006 in .env and open http://localhost:6006
+  # ----------------------------------------------------------------------------
+  phoenix:
+    image: arizephoenix/phoenix:version-21.0.0
+    container_name: hms-phoenix
+    profiles: ["observability"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6006:6006"
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+      # Local development only: the port is bound to 127.0.0.1 above. Traces contain prompts and guest names, so
+      # before ever exposing this service, set this to "true" and configure a PHOENIX_SECRET and API keys.
+      PHOENIX_ENABLE_AUTH: "false"
+    volumes:
+      - phoenix_data:/mnt/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 # ------------------------------------------------------------------------------
 # Persistent Volume Definition
 # ------------------------------------------------------------------------------
 volumes:
   postgres_data:
+    driver: local
+  fastembed_cache:
+    driver: local
+  phoenix_data:
     driver: local

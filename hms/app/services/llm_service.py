@@ -1,17 +1,16 @@
 import os
-import re
-import json
+import time
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Callable, List, Dict, Any, Optional
 import httpx
 from fastapi import HTTPException, status
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
 # Primary Gemini Cloud API endpoints
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 DEPRECATED_OR_INVALID_MODELS = {"gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash-lite"}
+MAX_TOOL_ROUNDS = 3  # how many times the model may ask for data before it must answer
 
 
 def get_effective_gemini_model(model_override: Optional[str] = None) -> str:
@@ -23,21 +22,80 @@ def get_effective_gemini_model(model_override: Optional[str] = None) -> str:
 
 
 def get_gemini_api_key() -> Optional[str]:
-    """
-    Retrieves the Google Gemini Cloud API key from environment variables.
-    Checks GEMINI_API_KEY and GOOGLE_API_KEY, reloading from .env if needed.
-    """
-    key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not key or not key.strip() or key.startswith("your_"):
-        load_dotenv(override=True)
-        key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    return key or None
+    """Retrieves the Google Gemini Cloud API key (GEMINI_API_KEY or GOOGLE_API_KEY)."""
+    key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    if not key or key.startswith("your_"):
+        return None
+    return key
 
 
-def is_gemini_configured() -> bool:
-    """Returns True if a valid Gemini API key is configured."""
-    key = get_gemini_api_key()
-    return bool(key and key.strip() and not key.startswith("your_"))
+def _record_usage(usage: Optional[Dict[str, Any]], data: Dict[str, Any], model: str, primary_model: str, started: float) -> None:
+    """Fills the caller's `usage` dict; token counts add up across the requests of one tool-using answer."""
+    if usage is None:
+        return
+    meta = data.get("usageMetadata", {})
+
+    def add(key: str, value: Optional[int]) -> Optional[int]:
+        return (usage.get(key) or 0) + (value or 0) if value is not None or usage.get(key) is not None else None
+
+    usage.update({
+        "model": model,
+        "latency_s": round(time.perf_counter() - started, 3),
+        "prompt_tokens": add("prompt_tokens", meta.get("promptTokenCount")),
+        "output_tokens": add("output_tokens", meta.get("candidatesTokenCount")),
+        "total_tokens": add("total_tokens", meta.get("totalTokenCount")),
+        "fallback_used": model != primary_model or bool(usage.get("fallback_used")),
+        "requests": (usage.get("requests") or 0) + 1,
+    })
+
+
+def _post_with_fallback(payload: Dict[str, Any], cloud_models: List[str], primary_model: str, api_key: str,
+                        usage: Optional[Dict[str, Any]], started: float) -> List[Dict[str, Any]]:
+    """
+    Sends one generateContent request, trying the backup models if one is overloaded (429/503), times out or answers
+    nothing. Returns the `parts` of the reply. Raises HTTPException 503 if every model fails.
+    """
+    last_error_msg = None
+    timeout_config = httpx.Timeout(timeout=15.0, connect=6.0)
+
+    for target_model in cloud_models:
+        url = f"{GEMINI_API_BASE}/{target_model}:generateContent"
+        try:
+            with httpx.Client(timeout=timeout_config) as client:
+                # Key goes in a header, not the URL, so it never shows up in request logs
+                resp = client.post(url, json=payload, headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    _record_usage(usage, data, target_model, primary_model, started)
+                    candidates = data.get("candidates", [])
+                    parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+                    if parts:
+                        return parts
+                    logger.warning(f"Gemini Cloud ({target_model}) returned empty candidates.")
+                    continue
+                else:
+                    msg = _extract_error_message(resp)
+                    logger.warning(f"Gemini Cloud ({target_model}) error {resp.status_code}: {msg}. Attempting next model...")
+                    last_error_msg = msg
+                    continue
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning(f"Gemini Cloud ({target_model}) connection issue: {e}. Attempting next model...")
+            last_error_msg = str(e)
+            continue
+
+    # If all models in the pool were exhausted (upstream error is logged, not sent to the client)
+    logger.error(f"All Gemini models failed. Last error: {last_error_msg or 'Request timed out'}")
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="The AI Concierge is temporarily unavailable. Please try again in a few moments."
+    )
+
+
+def _text_of(parts: List[Dict[str, Any]]) -> str:
+    text_parts = [p["text"] for p in parts if "text" in p and not p.get("thought", False)]
+    if text_parts:
+        return "".join(text_parts).strip()
+    return parts[0]["text"].strip() if parts and "text" in parts[0] else ""
 
 
 def call_gemini_cloud_api(
@@ -46,7 +104,11 @@ def call_gemini_cloud_api(
     conversation_history: Optional[List[Dict[str, str]]] = None,
     temperature: float = 0.3,
     max_tokens: int = 2048,
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    usage: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_runner: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+    max_tool_rounds: int = MAX_TOOL_ROUNDS,
 ) -> str:
     """
     Directly calls the Google Gemini REST Cloud API.
@@ -54,6 +116,12 @@ def call_gemini_cloud_api(
     backup official Gemini Cloud models.
     If all cloud models are unavailable, it raises HTTPException(status_code=503).
     NO fake hardcoded responses or invented data.
+    If a `usage` dict is passed it is filled with the model used, latency and token counts (for evaluation/tracing).
+
+    Tool use (structured RAG): when `tools` (Gemini function declarations) and `tool_runner(name, args) -> dict` are given,
+    the model may answer with function calls instead of text. Each call is run by `tool_runner`, the results are sent back,
+    and this repeats up to `max_tool_rounds` times; after that the model is told to answer with what it has. A question that
+    needs no lookup still costs exactly one request. Token counts in `usage` add up over all requests.
     """
     api_key = get_gemini_api_key()
     if not api_key:
@@ -71,7 +139,7 @@ def call_gemini_cloud_api(
             cloud_models.append(backup_m)
 
     # Build multi-turn contents
-    contents = []
+    contents: List[Dict[str, Any]] = []
     if conversation_history:
         for turn in conversation_history[-6:]:
             role = "user" if turn.get("role") == "user" else "model"
@@ -87,181 +155,56 @@ def call_gemini_cloud_api(
         "parts": [{"text": prompt}]
     })
 
-    gen_config: Dict[str, Any] = {
-        "temperature": temperature,
-        "maxOutputTokens": max(max_tokens, 2048)
-    }
-
     payload: Dict[str, Any] = {
         "contents": contents,
-        "generationConfig": gen_config
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
     }
-
     if system_instruction:
-        payload["systemInstruction"] = {
-            "parts": [{"text": system_instruction}]
-        }
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+    use_tools = bool(tools and tool_runner)
+    if use_tools:
+        payload["tools"] = tools
 
-    last_error_msg = None
-    timeout_config = httpx.Timeout(timeout=15.0, connect=6.0)
+    started = time.perf_counter()
+    rounds = 0
+    while True:
+        parts = _post_with_fallback(payload, cloud_models, primary_model, api_key, usage, started)
+        calls = [p for p in parts if "functionCall" in p] if use_tools else []
+        if not calls:
+            return _text_of(parts)
 
-    for target_model in cloud_models:
-        url = f"{GEMINI_API_BASE}/{target_model}:generateContent?key={api_key}"
-        try:
-            with httpx.Client(timeout=timeout_config) as client:
-                resp = client.post(url, json=payload, headers={"Content-Type": "application/json"})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        text_parts = [p["text"] for p in parts if "text" in p and not p.get("thought", False)]
-                        if text_parts:
-                            return "".join(text_parts).strip()
-                        elif parts and "text" in parts[0]:
-                            return parts[0]["text"].strip()
-                    logger.warning(f"Gemini Cloud ({target_model}) returned empty candidates.")
-                    continue
-                elif resp.status_code in [429, 503]:
-                    err_data = resp.json().get("error", {})
-                    msg = err_data.get("message", f"Status {resp.status_code}")
-                    logger.warning(f"Gemini Cloud ({target_model}) temporary load issue ({resp.status_code}): {msg}. Attempting next model...")
-                    last_error_msg = msg
-                    continue
-                else:
-                    err_data = resp.json().get("error", {})
-                    msg = err_data.get("message", resp.text)
-                    logger.warning(f"Gemini Cloud ({target_model}) error {resp.status_code}: {msg}")
-                    last_error_msg = msg
-                    continue
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning(f"Gemini Cloud ({target_model}) connection issue: {e}. Attempting next model...")
-            last_error_msg = str(e)
-            continue
+        if rounds >= max_tool_rounds:
+            # Out of rounds: forbid further calls and ask for the final answer from what has been gathered
+            payload["toolConfig"] = {"functionCallingConfig": {"mode": "NONE"}}
+            if rounds == max_tool_rounds:
+                rounds += 1
+                continue
+            return _text_of(parts)
 
-    # If all models in the pool were exhausted
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=f"Google Gemini Cloud API is temporarily overloaded across models. Last error: {last_error_msg or 'Request timed out'}. Please try again in a few moments."
-    )
+        rounds += 1
+        # The model's own reply is echoed back unchanged (Gemini 3 needs its "thoughtSignature" returned with the call)
+        contents.append({"role": "model", "parts": parts})
+        responses = []
+        for part in calls:
+            call = part["functionCall"]
+            try:
+                result = tool_runner(call.get("name", ""), call.get("args") or {})
+            except Exception:  # a broken tool must not take the whole answer down: tell the model and let it carry on
+                logger.exception("tool runner failed for %s", call.get("name"))
+                result = {"ok": False, "error": "the lookup failed"}
+            reply = {"name": call.get("name", ""), "response": result}
+            if call.get("id"):
+                reply["id"] = call["id"]
+            responses.append({"functionResponse": reply})
+        contents.append({"role": "user", "parts": responses})
+        payload["contents"] = contents
+        if usage is not None:
+            usage["tool_rounds"] = rounds
 
 
-def classify_intent_with_gemini(
-    user_query: str,
-    last_context: Optional[Dict[str, Any]] = None,
-    last_assistant_content: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Uses Google Gemini Cloud LLM to classify the user's intent and extract entities,
-    completely replacing rigid hardcoded keyword lists.
-    If the LLM is down, it raises HTTPException 503 instead of falling back to wrong regex.
-    """
-    candidates = bool(last_context and last_context.get("candidate_bookings"))
-
-    system_instruction = (
-        "You are an intent and entity parser for GrandStay Hotel Management System.\n"
-        "Analyze the user's message and determine the operational intent and key entities.\n"
-        "Possible intents:\n"
-        "- 'hotel_discovery': Exploring hotels, searching by destination (e.g. Miami, Paris, Tokyo), finding hotels with features/amenities (e.g. pool, pets), or asking about PRICING, ROOM RATES, SUITE COSTS, or ACCOMMODATION EXPENSES across properties or for previously discussed hotels.\n"
-        "- 'hotel_policy': Specific rules, check-in/check-out timings, smoking policies, pet rules, amenities, or guest reviews and ratings of a specific hotel.\n"
-        "- 'booking_inquiry': Questions about existing personal bookings, looking up reservation history, checking personal stay status, or asking how to cancel an existing stay and refund eligibility.\n"
-        "- 'general': Greetings, broad greetings, pleasantries, general help.\n\n"
-        "Return ONLY a valid JSON object matching this schema:\n"
-        "{\n"
-        '  "intent": "booking_inquiry" | "hotel_discovery" | "hotel_policy" | "general",\n'
-        '  "destination": string or null,\n'
-        '  "hotel_name": string or null,\n'
-        '  "referenced_hotels": [string] or null,\n'
-        '  "is_pricing_query": boolean,\n'
-        '  "is_cancellation_query": boolean,\n'
-        '  "selected_option": integer or null\n'
-        "}"
-    )
-
-    prompt = f"User query: \"{user_query}\"\n"
-    if last_assistant_content:
-        prompt += f"Previous Assistant Response Context:\n\"\"\"{last_assistant_content[:2500]}\"\"\"\n"
-        prompt += "If the user query is a follow-up referring to the hotels listed above (e.g., 'tell me about their pricing', 'how much are these?', 'what are their rates?'), extract ALL hotel names mentioned into 'referenced_hotels', mark is_pricing_query as true, and classify intent as 'hotel_discovery'.\n"
-    if candidates:
-        prompt += "Context: Multiple bookings were shown to the user with numbered options (Option 1, Option 2, etc.).\n"
-
-    raw_response = call_gemini_cloud_api(
-        prompt=prompt,
-        system_instruction=system_instruction,
-        temperature=0.0,
-        max_tokens=512
-    )
-
+def _extract_error_message(resp: httpx.Response) -> str:
+    """Pulls the error message out of a Gemini error response, tolerating non-JSON bodies."""
     try:
-        cleaned = raw_response.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned[7:]
-        if cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if m:
-            cleaned = m.group(0)
-        parsed = json.loads(cleaned.strip())
-        return parsed
-    except Exception as e:
-        logger.warning(f"Failed to parse LLM intent JSON: {raw_response}. Error: {e}")
-        return {
-            "intent": "booking_inquiry" if candidates else "hotel_discovery",
-            "destination": None,
-            "hotel_name": None,
-            "referenced_hotels": None,
-            "is_pricing_query": False,
-            "is_cancellation_query": False,
-            "confirmation": None,
-            "selected_option": None
-        }
-
-
-def synthesize_with_gemini(
-    user_query: str,
-    rag_context: str,
-    intent: str,
-    hotel_name: Optional[str] = None,
-    conversation_history: Optional[List[Dict[str, str]]] = None,
-    extra_facts: Optional[str] = None
-) -> str:
-    """
-    Instructs the Gemini Cloud LLM to act as GrandStay Hotel's AI Concierge,
-    grounding its response strictly in retrieved hotel knowledge chunks and verified facts.
-    """
-    system_prompt = (
-        "You are the AI Concierge for GrandStay Hotel Management System. "
-        "You provide warm, professional, high-end hospitality assistance to guests and visitors. "
-        "IMPORTANT RULES:\n"
-        "1. Ground your answers strictly on the PROVIDED KNOWLEDGE BASE and VERIFIED FACTS below.\n"
-        "2. Do not invent or hallucinate amenities, pricing, or cancellation policies not found in the facts.\n"
-        "3. Format your answers clearly using clean GitHub Markdown (headings, bullet points, bold highlights, blockquotes).\n"
-        "4. Never output internal database UUIDs or database IDs.\n"
-        "5. If exact information is missing from the provided knowledge, politely guide the guest to contact the front desk.\n"
-        "6. DOMAIN BOUNDARY: You are strictly an AI Hotel Concierge. You must NEVER write computer programming code, solve coding problems, or fulfill off-topic tasks (such as homework, non-travel advice, or writing scripts). If asked, politely decline and steer the conversation back to GrandStay hotels, amenities, policies, and reservations.\n"
-        "7. STRICTLY READ-ONLY INQUIRIES: You are strictly an informational AI Concierge and CANNOT modify the database, cancel reservations, or process financial refunds. If a guest asks to cancel or asks how to cancel their booking, clearly explain the relevant cancellation policy and eligible refund amount, and instruct the guest to complete their cancellation directly through the website via the 'My Reservations' (or 'My Trips') section in their profile menu, or by contacting the hotel front desk. You must NEVER ask the guest to reply 'Yes, confirm cancellation' or 'No, keep my booking', and never pretend that you can perform the cancellation."
-    )
-
-    prompt = f"### User Question:\n\"{user_query}\"\n\n"
-
-    if hotel_name:
-        prompt += f"**Hotel Context:** {hotel_name}\n\n"
-
-    if extra_facts:
-        prompt += f"### Verified Operational Facts & Policy Evaluation:\n{extra_facts}\n\n"
-
-    if rag_context:
-        prompt += f"### Retrieved Hotel Catalog & Policy Knowledge Chunks:\n{rag_context}\n\n"
-
-    prompt += (
-        "Please provide a complete, articulate, and well-structured response to the guest's inquiry "
-        "incorporating the verified facts and knowledge above."
-    )
-
-    return call_gemini_cloud_api(
-        prompt=prompt,
-        system_instruction=system_prompt,
-        conversation_history=conversation_history
-    )
+        return resp.json().get("error", {}).get("message") or f"Status {resp.status_code}"
+    except ValueError:
+        return resp.text[:200] or f"Status {resp.status_code}"

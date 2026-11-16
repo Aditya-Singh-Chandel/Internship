@@ -1,0 +1,26 @@
+# Experiment log
+
+Each row is one change, measured on the same golden dataset against the same seeded data (see `evals/README.md`).
+Numbers come from `python -m evals.retrieval_metrics` (free) and `python -m evals.runner` (real Gemini).
+
+| # | Change | Before | After | Verdict |
+|---|---|---|---|---|
+| 0 | Refund parser: lost the 50% tier, ignored "Full refund" without a `%`, parsed one tier per paragraph | 9 of 24 unit tests failed | 30/30 pass | kept (wrong refund amounts were reaching guests) |
+| 1 | Check-in time read from the hotel's own policy instead of an assumed 14:00 | notice hours wrong by 1-2 h (hotels check in at 14:00-16:00) | exact; "unknown" when a hotel publishes no time | kept |
+| 2 | Follow-up search: prepend the guest's previous message when the new one is short or uses "it/that/and..." | follow-up retrieval hit 0.55, first-place 0.09 | hit 0.91, first-place 0.55 | kept (no extra LLM call) |
+| 3 | Same, via an LLM rewrite of the query | not run: one extra Gemini call per turn on a 15 requests/minute free tier | | rejected on cost |
+| 4 | Keyword re-ranking on top of vector search (as the Python fallback does) | hit 0.98 | hit 0.94 | rejected (worse) |
+| 5 | Retrieve 8 chunks instead of 4 | hit 0.98, one FAQ answer never reached the model | hit 1.00, all categories | kept (+~350 prompt tokens, +20%) |
+| 6 | Cancellation/refund questions from signed-out visitors: explain the hotel's policy first, mention sign-in only for a specific booking | `pol-cancel-shibuya` failed 2 of 3 runs | passes 3 of 3 | kept |
+
+| 7 | **Structured RAG**: the model may call 4 vetted database tools (availability, hotel/room search with true ratings, stats) | the chatbot could not answer availability, rankings, counts or averages; rating shown was the mean of the latest 3 reviews | 17 structured questions on live Gemini: **14/17** (3 routing misses, all answers correct); offline: 72 new tests | kept. Cost: lookup questions use 2 Gemini requests, ~7,600 tokens, 6.5 s median (vs 1 request, ~2,400 tokens, ~2.5 s) |
+| 8 | Stricter tool-use prompt ("v2"): arithmetic only via `catalog_stats`; use a tool for "which hotels have X" even if the text seems to answer; no availability call without both dates | the 3 routing misses above | **not measured**: the Gemini free daily quota (500/day) ran out during the run | **reverted to the measured prompt**; ready to test, see `docs/04-how-to.md` R15 |
+| 10 | **Cross-encoder re-ranking**: vector search fetches 30 candidates, a local cross-encoder (`Xenova/ms-marco-MiniLM-L-6-v2`, 80 MB, CPU via fastembed) re-orders them and keeps 8. Unlike #4 it scores query and chunk *together*. `python -m evals.retrieval_variants --rerank` | hit@1 0.80, MRR 0.87 (follow-up hit@1 0.55, pricing 0.33) | hit@1 **0.89**, MRR **0.94** (follow-up 0.82, pricing 0.67); hit and recall stay 1.00. jina-turbo 0.91/0.94 (+~100 ms), bge-reranker-base 0.91/0.95 (4x slower, 1 GB): 1 case of 46 better, not worth it. Pool 15 = 30 = 50 here (test hotels have ~17 chunks each) | kept. Cost: ~200-500 ms CPU per question on a laptop (~10 ms per candidate), no API calls. LLM answers not re-measured yet |
+| 11 | **Send the whole chunk to Gemini** (it was cut at 350 characters in `build_knowledge_base_context`) | app database: 36/46 uploaded-document chunks, 12 policies and 10/10 review chunks were cut (20%, 23% and 67% of their text never reached Gemini). The test database has no chunk over 350 characters, so no eval could see it | whole chunk sent; 46 knowledge-base questions on live Gemini (with re-ranking): **46/46**, 3,683 tokens/question | kept (a bug, not a trade-off). New test with a 500+ character chunk |
+| 12 | Send 4 chunks instead of 8 (re-ranking puts every labelled answer in the top 3, offline) | 8 chunks: 46/46, 3,683 tokens/question | 4 chunks: **46/46**, 3,494 tokens/question (-5%) | **rejected**: the test world has 3 hotels, the app database has 10 (16 pet-policy chunks). "Which hotels allow dogs?" needs one chunk per hotel, and 4 chunks could show at most 4 hotels. Saving 190 tokens is not worth answers that silently omit hotels. Revisit with a cross-hotel test case on a 10-hotel seed |
+| 13 | **Re-ranker input cap and pool, on the real database** (52 questions written from its content, Python fallback search) | pool 30, whole chunks: hit@1 0.87, MRR 0.93, ~2.2 s/question (long chunks pad the batch to 512 tokens) | 600-character cap: hit@1 **0.90**, MRR **0.95**, ~0.8-1.0 s/question; pool 20 = pool 30 = pool 15 in quality | kept: `RERANK_MAX_CHARS=600`, `RERANK_CANDIDATES=20`. Test-database gate unchanged |
+| 14 | **Hotel-scoped chats state their hotel** in the prompt | real database: "Can we bring our 8-year-old?" (Santorini page) answered "which hotel?" | real database, live Gemini: 55/55 (was 52/55); full 89-question golden regression: 86/89, all categories 100% except structured 14/17 (same 3 routing misses as #7) | kept |
+| 9 | Full 89-question regression and the 6 tool-abuse attacks with the tools attached | last full run: 72/72 before structured RAG | **not run** (same quota exhaustion) | pending, run R15 first |
+
+Overall exact-check pass rate: 62-63/65 -> 72/72 (and 15 hardest cases x3 repeats: 45/45).
+Remember a single run is a sample: the model is random (temperature 0.3), so use `--repeat 3` before trusting a fix.

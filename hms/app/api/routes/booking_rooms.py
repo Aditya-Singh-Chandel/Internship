@@ -5,24 +5,22 @@ from fastapi import APIRouter, Depends, status, Form, Query, HTTPException
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_staff
 from app.models.user import User
-from app.models.booking import Booking
 from app.models.booking_room import BookingRoom
 from app.models.booking_item import BookingItem
 from app.schemas import booking_room as br_schema
 from app.schemas.common import ItemResponse, ActionResponse
 from app.services import booking_room_service
+from app.utils.scoping_utils import staff_hotel_scope, ensure_booking_in_scope
 
 router = APIRouter(prefix="/booking-rooms", tags=["Booking Rooms"], dependencies=[Depends(require_staff)])
 
 def _check_booking_room_ownership(db: Session, br_id: UUID, current_user: User):
-    if not current_user.hotel_id:
-        return
+    """The room assignment must belong to a hotel this user manages (owners: hotels they own)."""
     br = db.query(BookingRoom).filter(BookingRoom.id == br_id).first()
     if not br:
         raise HTTPException(status_code=404, detail="Booking room not found.")
-    booking = db.query(Booking).filter(Booking.id == br.booking_id).first()
-    if booking and booking.hotel_id != current_user.hotel_id:
-        raise HTTPException(status_code=403, detail="Access denied. You can only manage rooms for your assigned hotel.")
+    # BookingRoom has no booking_id column: the booking is reached through its line item
+    ensure_booking_in_scope(db, current_user, br.booking_item.booking_id if br.booking_item else None)
 
 @router.post("", response_model=br_schema.BookingRoomItemResponse, status_code=status.HTTP_201_CREATED)
 def create_booking_room(
@@ -39,10 +37,7 @@ def create_booking_room(
         if item:
             target_booking_id = item.booking_id
 
-    if current_user.hotel_id and target_booking_id:
-        booking = db.query(Booking).filter(Booking.id == target_booking_id).first()
-        if booking and booking.hotel_id != current_user.hotel_id:
-            raise HTTPException(status_code=403, detail="Access denied. You can only manage bookings for your assigned hotel.")
+    ensure_booking_in_scope(db, current_user, target_booking_id)
     item = booking_room_service.create_booking_room(db, booking_room)
     return {"success": True, "message": "Booking room assigned successfully", "data": item}
 
@@ -55,11 +50,11 @@ def bulk_assign_rooms(
     """
     Bulk assigns multiple physical room numbers to line items in a single atomic request.
     """
-    if current_user.hotel_id and payload.assignments:
-        first_item = db.query(BookingItem).filter(BookingItem.id == payload.assignments[0].booking_item_id).first()
-        booking = first_item.booking if first_item else None
-        if booking and booking.hotel_id != current_user.hotel_id:
-            raise HTTPException(status_code=403, detail="Access denied. You can only manage bookings for your assigned hotel.")
+    # every assignment is checked, not only the first one
+    for assignment in payload.assignments:
+        item = db.query(BookingItem).filter(BookingItem.id == assignment.booking_item_id).first()
+        if item:
+            ensure_booking_in_scope(db, current_user, item.booking_id)
     assigned = booking_room_service.bulk_assign_rooms(db=db, req=payload)
     return {"success": True, "message": f"{len(assigned)} rooms assigned successfully", "data": assigned}
 
@@ -80,6 +75,9 @@ def read_booking_rooms(
     db: Session = Depends(get_db)
 ):
     query_params = {k: v for k, v in locals().items() if v is not None and k not in ("db", "request", "current_user")}
+    query_params["_hotel_ids"] = staff_hotel_scope(db, current_user)
+    if query_params["_hotel_ids"] is None:
+        query_params.pop("_hotel_ids")
     return booking_room_service.get_booking_rooms(db, query_params)
 
 @router.get("/{id}", response_model=br_schema.BookingRoomItemResponse)
@@ -104,6 +102,11 @@ def update_booking_room(
     Update a single booking room assignment using form-data.
     """
     _check_booking_room_ownership(db, id, current_user)
+    if update_data.booking_item_id:
+        # moving the assignment to another line item: that booking must be in scope too
+        target = db.query(BookingItem).filter(BookingItem.id == update_data.booking_item_id).first()
+        if target:
+            ensure_booking_in_scope(db, current_user, target.booking_id)
     item = booking_room_service.update_booking_room(db, id, update_data)
     return {"success": True, "message": "Booking room updated successfully", "data": item}
 

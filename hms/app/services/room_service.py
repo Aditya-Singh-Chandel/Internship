@@ -78,11 +78,14 @@ def get_rooms(db: Session, query_params: dict | None = None):
         query_params = {}
 
     hotel_id = query_params.pop("hotel_id", None)
+    owner_hotel_ids = query_params.pop("_owner_hotel_ids", None)
     parsed = extract_filters(query_params)
 
     query = db.query(Room).options(joinedload(Room.room_type))
     if hotel_id:
         query = query.join(RoomType, Room.room_type_id == RoomType.id).filter(RoomType.hotel_id == hotel_id)
+    elif owner_hotel_ids is not None:
+        query = query.join(RoomType, Room.room_type_id == RoomType.id).filter(RoomType.hotel_id.in_(owner_hotel_ids))
 
     query = filter_active(query, Room, query_params)
     query = apply_filters(query, Room, parsed["filters"])

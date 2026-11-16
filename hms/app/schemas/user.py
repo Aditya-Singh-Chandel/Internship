@@ -43,9 +43,6 @@ class UserRegister(BaseModel):
     email: EmailStr = Field(description="Valid email address", examples=["john@example.com"])
     password: str = Field(min_length=6, description="Password (at least 6 characters)", examples=["Secret123!"])
     phone: str | None = Field(default=None, description="Phone contact number", examples=["+1234567890"])
-    role_id: UUID | None = Field(default=None, description="Optional role id. Defaults to 'customer' if omitted.")
-    role_name: str | None = Field(default=None, description="Optional role name ('admin', 'manager', 'receptionist', 'customer'). Defaults to 'customer'.")
-    hotel_id: UUID | None = Field(default=None, description="Optional assigned hotel ID for staff.", examples=[None])
 
 class UserItem(UserBase):
     id: UUID
@@ -97,5 +94,5 @@ UserPaginatedResponse = PaginatedResponse[UserItem]
 class AdminInitRequest(BaseModel):
     name: str = Field(default="System Administrator", description="Admin name", examples=["System Administrator"])
     email: EmailStr = Field(default="admin@hms.com", description="Admin login email", examples=["admin@hms.com"])
-    password: str = Field(default="Admin123!", min_length=6, description="Admin password", examples=["Admin123!"])
+    password: str = Field(min_length=8, description="Admin password (required, no default)", examples=["Choose-A-Strong-Password"])
     phone: str | None = Field(default="+1000000000", description="Admin contact phone", examples=["+1000000000"])

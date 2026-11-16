@@ -1,0 +1,61 @@
+{
+  "k": 8,
+  "overall": {
+    "hit": 1.0,
+    "hit@1": 0.891,
+    "mrr": 0.942,
+    "recall": 1.0,
+    "precision": 0.147,
+    "n": 46
+  },
+  "by_category": {
+    "discovery": {
+      "hit": 1.0,
+      "hit@1": 0.667,
+      "mrr": 0.806,
+      "recall": 1.0,
+      "precision": 0.271,
+      "n": 6
+    },
+    "faq": {
+      "hit": 1.0,
+      "hit@1": 1.0,
+      "mrr": 1.0,
+      "recall": 1.0,
+      "precision": 0.125,
+      "n": 10
+    },
+    "followup": {
+      "hit": 1.0,
+      "hit@1": 0.818,
+      "mrr": 0.909,
+      "recall": 1.0,
+      "precision": 0.136,
+      "n": 11
+    },
+    "policy": {
+      "hit": 1.0,
+      "hit@1": 1.0,
+      "mrr": 1.0,
+      "recall": 1.0,
+      "precision": 0.125,
+      "n": 13
+    },
+    "pricing": {
+      "hit": 1.0,
+      "hit@1": 0.667,
+      "mrr": 0.833,
+      "recall": 1.0,
+      "precision": 0.125,
+      "n": 3
+    },
+    "refund": {
+      "hit": 1.0,
+      "hit@1": 1.0,
+      "mrr": 1.0,
+      "recall": 1.0,
+      "precision": 0.125,
+      "n": 3
+    }
+  }
+}

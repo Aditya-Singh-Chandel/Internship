@@ -1,11 +1,22 @@
-from fastapi import FastAPI
+import os
+from contextlib import asynccontextmanager
+import logging
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.core.config import settings
 from app.core.database import engine, db_class
 
-from app.models import (
-    role, user, guest, hotel, room_type, room, 
+# Importing every model module registers its table on db_class.metadata before create_all() below
+from app.models import (  # noqa: F401
+    role, user, guest, hotel, room_type, room,
     policy, amenity, media, booking, booking_item, booking_room, booking_guest, review,
-    refresh_token, document, chat
+    refresh_token, document, chat as chat_model,
 )
 
 from app.api.routes import (
@@ -17,28 +28,29 @@ from app.api.routes import (
 
 db_class.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Hotel Booking Engine API")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("hms")
 
-# Allow the HTML frontend to call this API from any origin
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Demo databases only: keeps bookings, rooms and reviews moving with the calendar (scripts/demo_autopilot.py).
+    if settings.DEMO_AUTOPILOT:
+        from scripts.demo_autopilot import start_background
+        start_background(settings.DEMO_AUTOPILOT_INTERVAL_HOURS)
+        logger.info("Demo autopilot started (every %s h)", settings.DEMO_AUTOPILOT_INTERVAL_HOURS)
+    yield
+
+
+app = FastAPI(title="Hotel Booking Engine API", lifespan=lifespan)
+
+# Only the configured frontend origins may call this API with credentials (cookies)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 STATUS_CODE_ERROR_MAP = {
     400: "BAD_REQUEST",
@@ -92,13 +104,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
+    # Full details go to the server log only; clients never see SQL, paths or stack traces
+    logger.exception(f"Unhandled error on {request.method} {request.url.path}")
     return JSONResponse(
         status_code=500,
         content={
             "success": False,
             "message": "An unexpected internal server error occurred.",
             "error_code": "INTERNAL_SERVER_ERROR",
-            "details": str(exc)
+            "details": None
         }
     )
 
@@ -110,10 +124,14 @@ def home():
         "data": {"status": "online", "version": "1.0.0", "ui_url": "/app"}
     }
 
-import os
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+@app.get("/health", tags=["Health"])
+def health():
+    """Liveness/readiness probe: confirms the API is up and the database answers."""
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    return {"success": True, "message": "ok", "data": {"database": "ok"}}
 
+# Serve the built React app (frontend/dist) when it exists; in development use `npm run dev` instead
 frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 dist_path = os.path.join(frontend_path, "dist")
 if os.path.isdir(dist_path):
@@ -125,13 +143,6 @@ if os.path.isdir(dist_path):
     @app.get("/ui", response_class=FileResponse, tags=["Frontend"])
     def get_frontend_ui():
         return FileResponse(os.path.join(dist_path, "index.html"))
-elif os.path.isdir(frontend_path):
-    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
-
-    @app.get("/app", response_class=FileResponse, tags=["Frontend"])
-    @app.get("/ui", response_class=FileResponse, tags=["Frontend"])
-    def get_frontend_ui():
-        return FileResponse(os.path.join(frontend_path, "index.html"))
 
 
 app.include_router(auth.router)

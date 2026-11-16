@@ -323,3 +323,17 @@ def validate_amenity_linkage(db, hotel_id, room_type_id):
             )
 
 
+def validate_checkin_window(checkin_date, checkout_date, today=None) -> None:
+    """A stay can be checked in from its arrival date until the day before departure (server date)."""
+    from datetime import date as _date
+    today = today or _date.today()
+    if today < checkin_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Check-in opens on the arrival date ({checkin_date.isoformat()}); today is {today.isoformat()}.",
+        )
+    if today >= checkout_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This stay ended on {checkout_date.isoformat()}; it can no longer be checked in.",
+        )

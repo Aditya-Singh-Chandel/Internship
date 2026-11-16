@@ -1,0 +1,49 @@
+{
+  "label": "first judge baseline (partial, from the 15 cases scored before the free daily quota ran out)",
+  "judge": "openrouter:nvidia/nemotron-3.5-super-vl:free",
+  "complete": false,
+  "scored_cases": 15,
+  "summary": {
+    "n": 15,
+    "all_metrics_pass_rate": 1.0,
+    "by_metric": {
+      "Behavior": {
+        "n": 4,
+        "pass_rate": 1.0,
+        "avg_score": 1.0,
+        "judge_errors": 0
+      },
+      "Correctness": {
+        "n": 15,
+        "pass_rate": 1.0,
+        "avg_score": 0.973,
+        "judge_errors": 0
+      },
+      "GroundedPrices": {
+        "n": 7,
+        "pass_rate": 1.0,
+        "avg_score": 1.0,
+        "judge_errors": 0
+      },
+      "Style": {
+        "n": 11,
+        "pass_rate": 1.0,
+        "avg_score": 1.0,
+        "judge_errors": 0
+      }
+    },
+    "by_category": {
+      "booking": 1.0,
+      "discovery": 1.0,
+      "fake_entity": 1.0,
+      "faq": 1.0,
+      "followup": 1.0,
+      "off_topic": 1.0,
+      "opinion": 1.0,
+      "policy": 1.0,
+      "pricing": 1.0,
+      "refund": 1.0,
+      "security": 1.0
+    }
+  }
+}

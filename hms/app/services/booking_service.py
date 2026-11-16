@@ -1,6 +1,7 @@
 from app.utils.validation_utils import (
     validate_room_type_availability,
-    validate_assigned_rooms_not_overlapping
+    validate_assigned_rooms_not_overlapping,
+    validate_checkin_window,
 )
 from app.utils.query_utils import extract_filters, apply_filters, apply_sorting, filter_active, OPERATOR_MAP, paginate_and_format
 from datetime import date, datetime, timezone
@@ -131,6 +132,7 @@ def get_bookings(db: Session, query_params: dict | None = None):
     if hasattr(rooms_count_op, "value"): rooms_count_op = rooms_count_op.value
     rooms_count_op = rooms_count_op or "eq"
 
+    owner_hotel_ids = query_params.pop("_owner_hotel_ids", None)
     parsed = extract_filters(query_params, extra_reserved={"month", "year", "month_op", "year_op", "rooms_count", "rooms_count_op", "_guest_ids", "my_bookings"})
 
     query = db.query(Booking).options(
@@ -143,6 +145,8 @@ def get_bookings(db: Session, query_params: dict | None = None):
     )
     query = filter_active(query, Booking, query_params)
 
+    if owner_hotel_ids is not None:
+        query = query.filter(Booking.hotel_id.in_(owner_hotel_ids))
     if "_guest_ids" in query_params:
         query = query.filter(Booking.guest_id.in_(query_params["_guest_ids"]))
 
@@ -224,6 +228,7 @@ def update_booking(db: Session, item_id: uuid.UUID, update_data: BookingUpdate):
     if dates_changed and item.status == "in_house" and "checkin_date" in update_data_dict and update_data_dict["checkin_date"] != item.checkin_date:
         raise HTTPException(status_code=400, detail="Cannot change check-in date for a booking that is already in-house.")
 
+    previous_status = item.status
     for key, value in update_data_dict.items():
         setattr(item, key, value)
 
@@ -275,8 +280,24 @@ def update_booking(db: Session, item_id: uuid.UUID, update_data: BookingUpdate):
                 for bi in item.booking_items if bi.deleted_at is None
             )
 
-    # Automatically synchronize physical room inventory status with stay status
+    # Front-desk transitions: check-in only for a confirmed stay on its dates with every room assigned;
+    # check-out only for a stay that is in house.
     target_status = update_data_dict.get("status")
+    if target_status == "in_house" and previous_status != "in_house":
+        if previous_status not in ("confirmed", "pending"):
+            raise HTTPException(status_code=400, detail=f"Only a confirmed booking can be checked in (this one is {previous_status}).")
+        validate_checkin_window(item.checkin_date, item.checkout_date)
+        unassigned = [
+            r for bi in item.booking_items if bi.deleted_at is None
+            for r in bi.booking_rooms if r.deleted_at is None and r.status != "cancelled" and r.room_id is None
+        ]
+        if unassigned:
+            raise HTTPException(status_code=400, detail="Assign a physical room to every reserved room before check-in.")
+    elif target_status == "completed" and previous_status != "completed":
+        if previous_status != "in_house":
+            raise HTTPException(status_code=400, detail=f"Only an in-house stay can be checked out (this one is {previous_status}).")
+
+    # Automatically synchronize physical room inventory status with stay status
     if target_status == "in_house":
         for bi in item.booking_items:
             if bi.deleted_at is None:

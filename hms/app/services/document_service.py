@@ -3,7 +3,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import select, and_, or_, text
 from fastapi import HTTPException, status
 
 from app.models.document import HotelDocument, HotelDocumentChunk, HAS_PGVECTOR
@@ -16,7 +15,8 @@ from app.models.booking import Booking
 from app.utils.document_parsers import (
     parse_pdf, parse_docx, parse_xlsx, parse_text_file, chunk_text
 )
-from app.services import embedding_service
+from app.core.config import settings
+from app.services import embedding_service, rerank_service
 
 
 def ingest_file(
@@ -200,6 +200,9 @@ def ingest_text(
     return doc
 
 
+RECENT_REVIEWS_IN_KNOWLEDGE_BASE = 8
+
+
 def sync_hotel_database_knowledge(db: Session, hotel_id: uuid.UUID) -> Dict[str, Any]:
     """
     Synchronizes structured database records (Hotel profile, Policies, Amenities, RoomTypes)
@@ -299,10 +302,13 @@ def sync_hotel_database_knowledge(db: Session, hotel_id: uuid.UUID) -> Dict[str,
         review_lines = [
             f"Verified Guest Reviews & Ratings for {hotel.name}:",
             f"Overall Guest Rating: {avg_rating:.1f} out of 5 stars based on {len(hotel_reviews)} verified guest reviews.",
-            "Guest Feedback & Sentiment:"
+            f"Most recent guest feedback (latest {min(len(hotel_reviews), RECENT_REVIEWS_IN_KNOWLEDGE_BASE)}):"
         ]
-        for rev in hotel_reviews:
-            review_lines.append(f"- Rating: {rev.rating}/5 stars - \"{rev.comment}\"")
+        # The rating above uses every review; only the latest comments are listed, so the chunk (sent whole to the
+        # model) stays a readable size for hotels with long review histories.
+        for rev in hotel_reviews[:RECENT_REVIEWS_IN_KNOWLEDGE_BASE]:
+            if rev.comment:
+                review_lines.append(f"- Rating: {rev.rating}/5 stars - \"{rev.comment}\"")
 
         review_content = "\n".join(review_lines)
         synced_items.append({
@@ -352,16 +358,35 @@ def search_chunks(
     query: str,
     hotel_id: Optional[uuid.UUID] = None,
     top_k: int = 5,
-    access_level: str = "public"
+    access_level: str = "public",
+    rerank: Optional[bool] = None
 ) -> List[Dict[str, Any]]:
     """
-    Searches the knowledge base using semantic vector similarity and hybrid keyword matching.
+    Searches the knowledge base in two stages:
+      1. vector search (pgvector cosine distance, or the Python hybrid fallback) for a wide candidate pool;
+      2. a cross-encoder re-ranks that pool and keeps the best top_k (rerank_service; settings.RERANK_*).
+    rerank=None follows settings.RERANK_ENABLED; True/False forces it (evals compare both).
     If hotel_id is provided, restricts search to that hotel's documents and data.
     If hotel_id is None, searches across all hotels for general discovery.
     """
     if not query or not query.strip():
         return []
 
+    use_rerank = settings.RERANK_ENABLED if rerank is None else rerank
+    if not use_rerank:
+        return _vector_search(db, query, hotel_id, top_k, access_level)
+    candidates = _vector_search(db, query, hotel_id, max(top_k, settings.RERANK_CANDIDATES), access_level)
+    return rerank_service.rerank(query, candidates, top_k)
+
+
+def _vector_search(
+    db: Session,
+    query: str,
+    hotel_id: Optional[uuid.UUID],
+    top_k: int,
+    access_level: str
+) -> List[Dict[str, Any]]:
+    """First stage: the top_k chunks by embedding similarity (plus keyword overlap on the Python fallback)."""
     q_vec = embedding_service.get_embedding(query)
     q_tokens = set(query.lower().split())
 
@@ -466,12 +491,13 @@ def list_documents(
     )
 
 
-def delete_document(db: Session, document_id: uuid.UUID) -> bool:
+def delete_document(db: Session, hotel_id: uuid.UUID, document_id: uuid.UUID) -> bool:
     """
-    Soft-deletes a document and all its corresponding chunks.
+    Soft-deletes a hotel's document and all its corresponding chunks.
     """
     doc = db.query(HotelDocument).filter(
         HotelDocument.id == document_id,
+        HotelDocument.hotel_id == hotel_id,
         HotelDocument.deleted_at.is_(None)
     ).first()
     if not doc:

@@ -12,11 +12,6 @@ class BookingItemBase(BaseModel):
 class BookingItemCreate(BookingItemBase):
     pass
 
-class BookingItemUpdate(BaseModel):
-    room_type_id: UUID | None = Field(default=None)
-    quantity: int | None = Field(default=None, ge=1, le=50)
-    unit_price: Decimal | None = Field(default=None, ge=0)
-
 from app.schemas.room_type import RoomTypeItem
 
 class BookingItemResponse(BaseModel):

@@ -43,9 +43,6 @@ class BookingDetailItem(BookingBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-class BookingResponse(BookingDetailItem):
-    pass
-
 class BookingUpdate(BaseModel):
     hotel_id: UUID | None = Field(default=None, description="Hotel ID for this reservation.")
     guest_id: UUID | None = Field(default=None, description="Valid value for guest ID.")

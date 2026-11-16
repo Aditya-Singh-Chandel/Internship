@@ -1,10 +1,9 @@
-import os
 from uuid import UUID
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status, Form, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, Query, status, Form, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_staff, get_optional_current_user
+from app.api.deps import get_db, require_staff
 from app.models.user import User
 from app.schemas.document import (
     DocumentCreateText,
@@ -15,6 +14,9 @@ from app.schemas.document import (
 )
 from app.schemas.common import ItemResponse, ActionResponse
 from app.services import document_service
+from app.utils.scoping_utils import resolve_and_verify_hotel_id
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 router = APIRouter(prefix="/hotels/{hotel_id}/documents", tags=["Hotel Knowledge & Documents"])
 
@@ -34,7 +36,12 @@ async def upload_document(
     The document is automatically parsed, structure-aware chunked, embedded via FastEmbed,
     and indexed for RAG retrieval.
     """
-    file_bytes = await file.read()
+    resolve_and_verify_hotel_id(db, current_user, hotel_id)
+    if access_level not in ("public", "staff_only", "resident_only"):
+        raise HTTPException(status_code=422, detail="access_level must be one of: public, staff_only, resident_only.")
+    file_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large. The maximum size is 10 MB.")
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
@@ -64,6 +71,7 @@ def create_text_document(
     """
     Directly ingest written policies, FAQs, or catalog descriptions as text.
     """
+    resolve_and_verify_hotel_id(db, current_user, hotel_id)
     doc = document_service.ingest_text(
         db=db,
         hotel_id=hotel_id,
@@ -89,6 +97,7 @@ def sync_hotel_knowledge(
     Synchronizes existing database entities (Hotel profile, Policies, Amenities, Room Types)
     into vector chunks so the chatbot has real-time knowledge of all database updates.
     """
+    resolve_and_verify_hotel_id(db, current_user, hotel_id)
     sync_result = document_service.sync_hotel_database_knowledge(db=db, hotel_id=hotel_id)
     return {
         "success": True,
@@ -100,13 +109,15 @@ def sync_hotel_knowledge(
 @router.get("", response_model=ItemResponse[List[DocumentResponse]])
 def list_hotel_documents(
     hotel_id: UUID,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(require_staff),
     db: Session = Depends(get_db)
 ):
     """
-    List all uploaded documents for a hotel.
+    List all uploaded documents for a hotel (staff of that hotel only; includes staff_only documents).
     """
+    resolve_and_verify_hotel_id(db, current_user, hotel_id)
     docs = document_service.list_documents(db=db, hotel_id=hotel_id, limit=limit, offset=offset)
     return {
         "success": True,
@@ -125,7 +136,8 @@ def delete_hotel_document(
     """
     Soft-deletes a hotel document and its indexed vector chunks.
     """
-    document_service.delete_document(db=db, document_id=document_id)
+    resolve_and_verify_hotel_id(db, current_user, hotel_id)
+    document_service.delete_document(db=db, hotel_id=hotel_id, document_id=document_id)
     return {
         "success": True,
         "message": "Document and associated knowledge chunks deleted successfully.",
@@ -137,7 +149,6 @@ def delete_hotel_document(
 def test_search_hotel_chunks(
     hotel_id: UUID,
     req: DocumentSearchRequest,
-    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
     """

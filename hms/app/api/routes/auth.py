@@ -22,7 +22,7 @@ def set_refresh_cookie(response: Response, refresh_token: str):
         key=REFRESH_COOKIE_NAME,
         value=refresh_token,
         httponly=True,
-        secure=False,  # Set to True when served over HTTPS in production
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
         path="/"
@@ -250,7 +250,7 @@ def initialize_roles(db: Session = Depends(get_db)):
 
 @router.post("/init-admin", response_model=Token, summary="Bootstrap the initial super-admin account")
 def initialize_admin(
-    admin_data: AdminInitRequest = None,
+    admin_data: AdminInitRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -258,9 +258,6 @@ def initialize_admin(
     - If an admin account already exists in the database, this endpoint rejects the request for security.
     - If no admin exists, it seeds default roles, creates the first admin user, and returns their active JWT access token.
     """
-    if admin_data is None:
-        admin_data = AdminInitRequest()
-
     admin_role = role_service.get_or_create_role(db, UserRole.ADMIN.value)
 
     # Check if ANY active admin user exists

@@ -117,7 +117,7 @@ def verify_booking_access(
         if not hotel or hotel.owner_id != current_user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied. You do not own the hotel for this booking."
+                detail="Access denied. You do not own the hotel for this booking."
             )
         return True
 
@@ -172,3 +172,59 @@ def verify_review_access(
 
     return True
 
+
+# ---------------------------------------------------------------------------------------------------------------
+# Hotel scope for the staff-side operational records (room assignments, line items, booking guests, guest profiles).
+# Admins see every hotel, owners the hotels they own, managers and receptionists their assigned hotel only.
+# ---------------------------------------------------------------------------------------------------------------
+
+def staff_hotel_scope(db: Session, user: User) -> list[UUID] | None:
+    """Hotel ids this staff-side user may see; None means every hotel (admin)."""
+    role_name = user.role.name.lower() if user.role else UserRole.CUSTOMER.value
+    if role_name == UserRole.ADMIN.value:
+        return None
+    if role_name == UserRole.OWNER.value:
+        return [h.id for h in db.query(Hotel.id).filter(Hotel.owner_id == user.id, Hotel.deleted_at.is_(None)).all()]
+    return [user.hotel_id] if user.hotel_id else []
+
+
+def bookings_in_scope(hotel_ids: list[UUID]):
+    """Subquery of the booking ids that belong to the given hotels."""
+    from sqlalchemy import select
+    return select(Booking.id).where(Booking.hotel_id.in_(hotel_ids))
+
+
+def guests_in_scope(hotel_ids: list[UUID]):
+    """Subquery of the guests who booked, stayed or travelled with a booking at the given hotels."""
+    from sqlalchemy import select, union
+    from app.models.booking_guest import BookingGuest
+    from app.models.booking_item import BookingItem
+    from app.models.booking_room import BookingRoom
+    return union(
+        select(Booking.guest_id).where(Booking.hotel_id.in_(hotel_ids)),
+        select(BookingGuest.guest_id).join(Booking, BookingGuest.booking_id == Booking.id).where(Booking.hotel_id.in_(hotel_ids)),
+        select(BookingRoom.guest_id).join(BookingItem, BookingRoom.booking_item_id == BookingItem.id)
+        .join(Booking, BookingItem.booking_id == Booking.id).where(Booking.hotel_id.in_(hotel_ids)),
+    )
+
+
+def ensure_booking_in_scope(db: Session, user: User, booking_id: UUID | None) -> None:
+    """403 unless the booking belongs to a hotel this user may manage (404 if it does not exist)."""
+    scope = staff_hotel_scope(db, user)
+    if scope is None or booking_id is None:
+        return
+    hotel_id = db.query(Booking.hotel_id).filter(Booking.id == booking_id).scalar()
+    if hotel_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+    if hotel_id not in scope:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied. This booking belongs to a hotel you do not manage.")
+
+
+def ensure_guest_in_scope(db: Session, user: User, guest_id: UUID) -> None:
+    """404 unless the guest has a booking at a hotel this user may manage (a guest of another hotel is not revealed)."""
+    scope = staff_hotel_scope(db, user)
+    if scope is None:
+        return
+    found = db.query(Guest.id).filter(Guest.id == guest_id, Guest.id.in_(guests_in_scope(scope))).first()
+    if not found:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This Guest is not present.")

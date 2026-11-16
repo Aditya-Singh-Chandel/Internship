@@ -1,1 +1,5 @@
 .env
+
+# Local database dumps (contain password hashes and guest data): never pushed
+hms_db_backups/
+*.dump

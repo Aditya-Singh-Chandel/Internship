@@ -192,7 +192,8 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialNotice })
               </>
             )}
 
-            {!isRegister && (
+            {/* Demo credentials ship only in dev builds, or when VITE_SHOW_DEMO_LOGINS=true for a demo deployment */}
+            {!isRegister && (import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_LOGINS === 'true') && (
               <div style={{
                 background: '#f8fafc',
                 border: '1px solid #e2e8f0',

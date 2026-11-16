@@ -1,7 +1,5 @@
-import os
 from uuid import UUID
 from typing import List, Optional
-from pydantic import BaseModel
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
@@ -77,7 +75,7 @@ def get_session_message_history(
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found.")
 
-    if current_user and session.user_id and session.user_id != current_user.id:
+    if session.user_id and (not current_user or session.user_id != current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to access this conversation.")
 
     messages = chat_service.get_session_history(db=db, session_id=session_id)
@@ -85,67 +83,4 @@ def get_session_message_history(
         "success": True,
         "message": "Conversation history retrieved successfully.",
         "data": messages
-    }
-
-
-class GeminiConfigPayload(BaseModel):
-    api_key: str
-    model: Optional[str] = "gemini-1.5-flash"
-
-
-@router.get("/llm-status")
-def get_llm_status():
-    """
-    Checks if Google Gemini Cloud API is configured.
-    """
-    from app.services import llm_service
-    configured = llm_service.is_gemini_configured()
-    key = llm_service.get_gemini_api_key()
-    masked = (key[:6] + "..." + key[-4:]) if (key and len(key) > 10) else None
-    return {
-        "success": True,
-        "data": {
-            "is_configured": configured,
-            "provider": "Google Gemini Cloud API (REST)",
-            "model": os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-            "masked_key": masked
-        }
-    }
-
-
-@router.post("/llm-config")
-def update_llm_config(payload: GeminiConfigPayload):
-    """
-    Dynamically configures or updates the Google Gemini Cloud API key.
-    """
-    import os
-    clean_key = payload.api_key.strip()
-    os.environ["GEMINI_API_KEY"] = clean_key
-    if payload.model:
-        os.environ["GEMINI_MODEL"] = payload.model.strip()
-
-    # Persist into .env
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    env_file = os.path.join(base_dir, ".env")
-    try:
-        if os.path.exists(env_file):
-            with open(env_file, "r") as f:
-                content = f.read()
-            if "GEMINI_API_KEY=" in content:
-                import re
-                content = re.sub(r"GEMINI_API_KEY=.*", f"GEMINI_API_KEY={clean_key}", content)
-            else:
-                content += f"\nGEMINI_API_KEY={clean_key}\n"
-            with open(env_file, "w") as f:
-                f.write(content)
-    except Exception:
-        pass
-
-    return {
-        "success": True,
-        "message": "Gemini Cloud API configured successfully! Chatbot is now powered by Gemini Cloud.",
-        "data": {
-            "is_configured": True,
-            "model": os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-        }
     }
