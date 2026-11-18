@@ -9,8 +9,18 @@ logger = logging.getLogger(__name__)
 
 # Primary Gemini Cloud API endpoints
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-DEPRECATED_OR_INVALID_MODELS = {"gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash-lite"}
+DEPRECATED_OR_INVALID_MODELS = {"gemini-2.5-pro", "gemini-2.5-flash-lite"}
+# Tried in order after the configured model. Both are fast non-"thinking" models (~1-3 s). gemini-3.5-flash is NOT a
+# usable backup: it thinks before answering and took 23-82 s per reply when measured, so it always hit the timeout.
+BACKUP_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 MAX_TOOL_ROUNDS = 3  # how many times the model may ask for data before it must answer
+
+# Resilience against a stalled or busy Gemini request (see _post_with_fallback). A normal reply takes 2-5 s.
+PER_TRY_TIMEOUT_S = 15.0     # wait this long for one reply before giving up on that try
+ATTEMPTS_PER_MODEL = 2       # tries per model for transient failures before moving to the backup model
+RETRY_PAUSE_S = 1.0          # short pause before retrying
+TOTAL_BUDGET_S = 45.0        # never spend longer than this on one request across all tries
+TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 def get_effective_gemini_model(model_override: Optional[str] = None) -> str:
@@ -52,36 +62,52 @@ def _record_usage(usage: Optional[Dict[str, Any]], data: Dict[str, Any], model: 
 def _post_with_fallback(payload: Dict[str, Any], cloud_models: List[str], primary_model: str, api_key: str,
                         usage: Optional[Dict[str, Any]], started: float) -> List[Dict[str, Any]]:
     """
-    Sends one generateContent request, trying the backup models if one is overloaded (429/503), times out or answers
-    nothing. Returns the `parts` of the reply. Raises HTTPException 503 if every model fails.
+    Sends one generateContent request and returns the `parts` of the reply. Raises HTTPException 503 if every try fails.
+
+    Gemini occasionally stalls on a single request (no reply within the read timeout) or reports itself busy, even
+    though the same request answers in ~2 s when sent again. So each model gets ATTEMPTS_PER_MODEL tries for those
+    transient failures (timeout, connection error, 429/500/502/503/504) before the next model is tried. A permanent
+    error (e.g. 400 bad request, 403 bad key) skips straight to the next model. TOTAL_BUDGET_S caps the whole thing so
+    a caller is never kept waiting indefinitely.
     """
     last_error_msg = None
-    timeout_config = httpx.Timeout(timeout=15.0, connect=6.0)
+    timeout_config = httpx.Timeout(timeout=PER_TRY_TIMEOUT_S, connect=6.0)
+    deadline = time.perf_counter() + TOTAL_BUDGET_S
 
     for target_model in cloud_models:
         url = f"{GEMINI_API_BASE}/{target_model}:generateContent"
-        try:
-            with httpx.Client(timeout=timeout_config) as client:
-                # Key goes in a header, not the URL, so it never shows up in request logs
-                resp = client.post(url, json=payload, headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    _record_usage(usage, data, target_model, primary_model, started)
-                    candidates = data.get("candidates", [])
-                    parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
-                    if parts:
-                        return parts
-                    logger.warning(f"Gemini Cloud ({target_model}) returned empty candidates.")
-                    continue
-                else:
-                    msg = _extract_error_message(resp)
-                    logger.warning(f"Gemini Cloud ({target_model}) error {resp.status_code}: {msg}. Attempting next model...")
-                    last_error_msg = msg
-                    continue
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning(f"Gemini Cloud ({target_model}) connection issue: {e}. Attempting next model...")
-            last_error_msg = str(e)
-            continue
+        for attempt in range(1, ATTEMPTS_PER_MODEL + 1):
+            if time.perf_counter() + 1 >= deadline:
+                break
+            try:
+                with httpx.Client(timeout=timeout_config) as client:
+                    # Key goes in a header, not the URL, so it never shows up in request logs
+                    resp = client.post(url, json=payload, headers={"Content-Type": "application/json", "x-goog-api-key": api_key})
+            except (httpx.TimeoutException, httpx.RequestError) as e:
+                last_error_msg = str(e) or type(e).__name__
+                logger.warning(f"Gemini Cloud ({target_model}) try {attempt}/{ATTEMPTS_PER_MODEL}: {last_error_msg}. Retrying...")
+                time.sleep(RETRY_PAUSE_S)
+                continue
+
+            if resp.status_code == 200:
+                data = resp.json()
+                _record_usage(usage, data, target_model, primary_model, started)
+                candidates = data.get("candidates", [])
+                parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+                if parts:
+                    return parts
+                logger.warning(f"Gemini Cloud ({target_model}) returned empty candidates.")
+                last_error_msg = "empty response"
+                break  # same input would most likely come back empty again; try the next model
+
+            last_error_msg = _extract_error_message(resp)
+            if resp.status_code in TRANSIENT_STATUS:
+                logger.warning(f"Gemini Cloud ({target_model}) try {attempt}/{ATTEMPTS_PER_MODEL} busy "
+                               f"({resp.status_code}: {last_error_msg}). Retrying...")
+                time.sleep(RETRY_PAUSE_S)
+                continue
+            logger.warning(f"Gemini Cloud ({target_model}) error {resp.status_code}: {last_error_msg}. Trying next model...")
+            break
 
     # If all models in the pool were exhausted (upstream error is logged, not sent to the client)
     logger.error(f"All Gemini models failed. Last error: {last_error_msg or 'Request timed out'}")
@@ -134,7 +160,7 @@ def call_gemini_cloud_api(
 
     # Candidate active models on Google Cloud in order of resilience and speed
     cloud_models = [primary_model]
-    for backup_m in ["gemini-3.5-flash-lite", "gemini-3.5-flash"]:
+    for backup_m in BACKUP_MODELS:
         if backup_m not in cloud_models and backup_m not in DEPRECATED_OR_INVALID_MODELS:
             cloud_models.append(backup_m)
 

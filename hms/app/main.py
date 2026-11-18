@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core import tracing
 from app.core.config import settings
 from app.core.database import engine, db_class
 
@@ -51,6 +52,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phoenix / OpenTelemetry: traces every request and SQL query when PHOENIX_COLLECTOR_ENDPOINT is set (app/core/tracing.py)
+tracing.instrument_app(app, engine)
 
 STATUS_CODE_ERROR_MAP = {
     400: "BAD_REQUEST",
@@ -127,7 +131,7 @@ def home():
 @app.get("/health", tags=["Health"])
 def health():
     """Liveness/readiness probe: confirms the API is up and the database answers."""
-    with engine.connect() as conn:
+    with tracing.untraced(), engine.connect() as conn:  # Docker calls this every 30 s; keep it out of Phoenix
         conn.execute(text("SELECT 1"))
     return {"success": True, "message": "ok", "data": {"database": "ok"}}
 

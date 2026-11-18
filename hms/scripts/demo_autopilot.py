@@ -318,8 +318,11 @@ def run_once():
     if not _safe_target():
         logger.warning("Demo autopilot skipped: it never runs against a *_test database.")
         return {}
-    with session_maker() as db:
+    from app.core import tracing
+    # One named trace per run in Phoenix, with its SQL queries nested under it (instead of scattered root spans)
+    with tracing.span("demo_autopilot", "CHAIN") as span, session_maker() as db:
         stats = catch_up(db)
+        span.set("output.value", str(stats or "nothing to do"))
     logger.info("Demo autopilot: %s", stats or "nothing to do")
     return stats
 

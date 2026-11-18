@@ -115,6 +115,42 @@ def enabled() -> bool:
 
 
 @contextmanager
+def untraced() -> Iterator[None]:
+    """Nothing inside this block is traced (used by /health, which Docker calls every 30 s; its SQL is just noise)."""
+    try:
+        from opentelemetry.instrumentation.utils import suppress_instrumentation
+    except Exception:  # tracing packages not installed: there is nothing to suppress
+        yield
+        return
+    with suppress_instrumentation():
+        yield
+
+
+def instrument_app(app, engine) -> None:
+    """
+    Whole-app tracing, on top of the concierge spans: one span per HTTP request (method, route, status, latency) and a
+    child span for every SQL query it runs. A chat request therefore shows as
+    POST /chat -> concierge_chat -> knowledge_retrieval / gemini_generate, with the SQL underneath.
+    Health checks and static assets are skipped. Does nothing when tracing is off; a failure only logs a warning.
+    """
+    if not enabled() or _provider is None:
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app, tracer_provider=_provider, excluded_urls="health,assets",
+                                           exclude_spans=["receive", "send"])  # drop low-level ASGI message spans
+        logger.info("Tracing: every HTTP request is traced")
+    except Exception as exc:
+        logger.warning("HTTP request tracing could not start (%s)", exc)
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+        SQLAlchemyInstrumentor().instrument(engine=engine, tracer_provider=_provider)
+        logger.info("Tracing: every SQL query is traced")
+    except Exception as exc:
+        logger.warning("SQL query tracing could not start (%s)", exc)
+
+
+@contextmanager
 def attributes(**facts: Any) -> Iterator[None]:
     """Facts (case id, category, run label...) attached as `metadata` to every span opened inside the block."""
     token = _extra.set({**_extra.get(), **facts})
